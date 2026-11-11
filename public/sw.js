@@ -1,5 +1,5 @@
 // Keeps the app shell available offline / instantly on launch. API calls always go to the network.
-const CACHE = "hum-v1";
+const CACHE = "hum-v2";
 const SHELL = ["/", "/index.html", "/app.css", "/app.js", "/manifest.webmanifest", "/icons/icon-192.png", "/icons/apple-touch-icon.png"];
 
 self.addEventListener("install", e => {

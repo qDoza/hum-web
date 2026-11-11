@@ -6,7 +6,7 @@ const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": 
 const fmt = ms => { const s = Math.max(0, Math.floor((ms || 0) / 1000)); return s >= 3600 ? `${Math.floor(s / 3600)}:${String(Math.floor(s / 60) % 60).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}` : `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; };
 const shuffle = a => a.map(v => [Math.random(), v]).sort((x, y) => x[0] - y[0]).map(x => x[1]);
 const plural = n => n % 10 === 1 && n % 100 !== 11 ? "трек" : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 12 || n % 100 > 14) ? "трека" : "треков";
-const VERSION = "6";
+const VERSION = "7";
 
 // ================================================================== storage
 // Tokens are kept twice (localStorage and a first-party cookie), so a home-screen app that loses one
@@ -45,9 +45,9 @@ navigator.storage?.persist?.().catch(() => {});
 
 const isStandalone = () => navigator.standalone === true || matchMedia("(display-mode: standalone)").matches;
 
-// iPhone home-screen apps sometimes get a viewport one status bar shorter than the screen while drawing
-// from the very top: everything sits too high (the header under the clock) with a gap at the bottom.
-// Measure it and stretch the app over the whole screen ourselves.
+// iPhone home-screen apps can get a viewport one status bar shorter than the screen that still starts at
+// the very top, under the clock, while the strip at the bottom (home indicator) is not painted at all.
+// So: pad the top by that difference, and don't reserve anything at the bottom; that strip is already spare.
 const vp = { st: 0, sb: 0, H: 0, ih: 0, gap: 0 };
 function fixViewport() {
   const root = document.documentElement;
@@ -64,10 +64,8 @@ function fixViewport() {
   vp.gap = ios && isStandalone() ? Math.max(0, vp.H - innerHeight) : 0;
   for (const k of ["--app-h", "--gap", "--safe-t", "--safe-b"]) root.style.removeProperty(k);
   if (vp.gap > 8) {
-    root.style.setProperty("--app-h", vp.H + "px");
-    root.style.setProperty("--gap", vp.gap + "px");
     root.style.setProperty("--safe-t", Math.max(vp.st, vp.gap) + "px");
-    root.style.setProperty("--safe-b", Math.max(vp.sb, 21) + "px");
+    root.style.setProperty("--safe-b", "0px");
   } else if (ios && isStandalone() && vp.st === 0 && screen.height >= 812) {
     root.style.setProperty("--safe-t", "50px");
     root.style.setProperty("--safe-b", Math.max(vp.sb, 21) + "px");
@@ -633,14 +631,22 @@ function updateMediaSession() {
     artwork: t.big ? [{ src: t.big, sizes: t.src === "ya" ? "600x600" : "500x500", type: "image/jpeg" }] : [],
   });
 }
-if ("mediaSession" in navigator) {
+// iPhone shows «−10 / +10 s» on the lock screen unless the seek actions are explicitly cleared;
+// with them cleared it shows previous / next track. Re-applied on every track, since a new src can reset them.
+function mediaHandlers() {
+  if (!("mediaSession" in navigator)) return;
   const ms = navigator.mediaSession;
-  ms.setActionHandler("play", () => audio.play());
-  ms.setActionHandler("pause", () => audio.pause());
-  ms.setActionHandler("nexttrack", () => next());
-  ms.setActionHandler("previoustrack", () => prev());
-  try { ms.setActionHandler("seekto", d => { audio.currentTime = d.seekTime; }); } catch {}
+  const set = (a, fn) => { try { ms.setActionHandler(a, fn); } catch {} };
+  set("play", () => audio.play());
+  set("pause", () => audio.pause());
+  set("nexttrack", () => next());
+  set("previoustrack", () => prev());
+  set("seekbackward", null);
+  set("seekforward", null);
+  set("seekto", d => { audio.currentTime = d.seekTime; });
 }
+mediaHandlers();
+audio.addEventListener("loadedmetadata", mediaHandlers);
 
 // ================================================================== UI: shell
 

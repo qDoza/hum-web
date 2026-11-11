@@ -28,7 +28,7 @@ svg { width: 20px; height: 20px; display: block; }
 #app { position: fixed; inset: 0; bottom: auto; height: var(--app-h, 100%); display: flex; flex-direction: column; max-width: 560px; margin: 0 auto; }
 
 /* ---------- header ---------- */
-.top { display: flex; align-items: center; justify-content: space-between; padding: calc(var(--safe-t) + 4px) 18px 4px; position: relative; z-index: 2; }
+.top { display: flex; align-items: center; justify-content: space-between; padding: calc(var(--safe-t) + 14px) 18px 4px; position: relative; z-index: 2; }
 .brand { display: flex; align-items: center; gap: 9px; font-weight: 700; font-size: 17px; letter-spacing: .1em; }
 .logo { width: 22px; height: 22px; }
 .ib { width: 36px; height: 36px; border-radius: 12px; background: var(--chip); display: grid; place-items: center; }
@@ -175,7 +175,7 @@ svg { width: 20px; height: 20px; display: block; }
   linear-gradient(180deg, rgba(255,255,255,.05), transparent 22%, transparent 70%, rgba(0,0,0,.45)),
   url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 .5 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.5'/%3E%3C/svg%3E"),
   rgba(10,10,12,.58); background-blend-mode: normal, overlay, normal; }
-.pl-in { position: relative; height: 100%; max-width: 520px; margin: 0 auto; display: flex; flex-direction: column; padding: calc(var(--safe-t) + 6px) 22px calc(var(--safe-b) + 14px); }
+.pl-in { position: relative; height: 100%; max-width: 520px; margin: 0 auto; display: flex; flex-direction: column; padding: calc(var(--safe-t) + 14px) 22px calc(var(--safe-b) + 14px); }
 .pl-top { display: flex; align-items: center; justify-content: space-between; }
 .pl-ctx { font-size: 12px; color: rgba(255,255,255,.6); text-transform: uppercase; letter-spacing: .06em; text-align: center; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 8px; }
 .pl-stage { flex: 1; min-height: 180px; position: relative; display: grid; place-items: center; margin: 6px -22px 4px; }

@@ -1,6 +1,6 @@
 ﻿// Keeps the app shell available offline / instantly on launch. API calls always go to the network.
-const CACHE = "hum-v6";
-const SHELL = ["/", "/index.html", "/app.css?v=6", "/app.js?v=6", "/manifest.webmanifest", "/icons/icon-192.png", "/icons/apple-touch-icon.png"];
+const CACHE = "hum-v7";
+const SHELL = ["/", "/index.html", "/app.css?v=7", "/app.js?v=7", "/manifest.webmanifest", "/icons/icon-192.png", "/icons/apple-touch-icon.png"];
 
 self.addEventListener("install", e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));

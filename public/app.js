@@ -6,7 +6,7 @@ const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": 
 const fmt = ms => { const s = Math.max(0, Math.floor((ms || 0) / 1000)); return s >= 3600 ? `${Math.floor(s / 3600)}:${String(Math.floor(s / 60) % 60).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}` : `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; };
 const shuffle = a => a.map(v => [Math.random(), v]).sort((x, y) => x[0] - y[0]).map(x => x[1]);
 const plural = n => n % 10 === 1 && n % 100 !== 11 ? "трек" : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 12 || n % 100 > 14) ? "трека" : "треков";
-const VERSION = "8";
+const VERSION = "9";
 
 // ================================================================== storage
 // Tokens are kept twice (localStorage and a first-party cookie), so a home-screen app that loses one
@@ -22,6 +22,36 @@ const S = Object.assign({
   scBase: "likes", scGenre: null, scNoSets: true, scOnlyNew: false, scFresh: false,
 }, store.get("settings", {}));
 const saveS = () => store.set("settings", S);
+
+// ================================================================== look («Оформление»)
+
+const LOOK_DEFAULT = { accent: "mono", bg: "black", contrast: "normal", font: "system", shape: "soft", cover: "round", spin: true, plbg: "glass", vizStyle: "bars", vizAmt: 1, motion: "full" };
+S.look = Object.assign({}, LOOK_DEFAULT, S.look || {});
+const ACCENTS = [["mono", "Белый", "#f2f2f2"], ["cover", "По обложке", null], ["lime", "Лайм", "#c8f53c"], ["coral", "Коралл", "#ff6a55"], ["lilac", "Сирень", "#b38cff"],
+  ["mint", "Мята", "#45e0b0"], ["amber", "Янтарь", "#ffb43d"], ["sky", "Небо", "#58b2ff"], ["pink", "Розовый", "#ff5ca8"], ["red", "Красный", "#ff3b3b"]];
+const BGS = [["black", "Чёрный", "#000"], ["graphite", "Графит", "#1b1b1f"], ["midnight", "Полночь", "#0d1322"], ["warm", "Тёплый", "#19140f"], ["forest", "Лес", "#0e1812"], ["cover", "По обложке", null]];
+const hexRgb = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
+const lum = ([r, g, b]) => (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+// the colour the visualizer and the UI accent use right now
+const accentRgb = () => { const a = ACCENTS.find(x => x[0] === S.look.accent); return a?.[2] ? hexRgb(a[2]) : null; };
+
+function applyLook() {
+  const L = S.look, root = document.documentElement;
+  root.dataset.bg = L.bg; root.dataset.contrast = L.contrast; root.dataset.font = L.font; root.dataset.shape = L.shape;
+  root.dataset.plbg = L.plbg; root.dataset.motion = L.motion;
+  const coverRgb = (typeof viz !== "undefined" ? viz.target : [200, 200, 200]).map(Math.round);
+  const ac = L.accent === "cover" ? coverRgb : accentRgb() || [242, 242, 242];
+  root.style.setProperty("--ac", `rgb(${ac.join(",")})`);
+  root.style.setProperty("--on-ac", lum(ac) > 0.5 ? "#000" : "#fff");
+  root.style.setProperty("--cover-r", L.cover === "square" ? "18px" : "50%");
+  if (L.bg === "cover") {
+    const m = (k, add) => `rgb(${coverRgb.map(v => Math.round(v * k + add)).join(",")})`;
+    root.style.setProperty("--bg", m(0.055, 0)); root.style.setProperty("--panel", m(0.1, 8)); root.style.setProperty("--chip", m(0.13, 14));
+    root.style.setProperty("--mode", m(0.19, 20)); root.style.setProperty("--line", m(0.15, 14));
+  } else for (const k of ["--bg", "--panel", "--chip", "--mode", "--line"]) root.style.removeProperty(k);
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.content = getComputedStyle(root).getPropertyValue("--bg").trim() || "#000";
+}
 
 const b64url = s => Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((s.length + 3) % 4)), c => c.charCodeAt(0));
 const toB64url = bytes => btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
@@ -1176,7 +1206,7 @@ function tintFrom(t) {
         r += d[i] * wt; g += d[i + 1] * wt; b += d[i + 2] * wt; w += wt;
       }
       viz.target = lift([r / w, g / w, b / w]);
-      if (cur()?.key === t.key) document.documentElement.style.setProperty("--accent", viz.target.map(Math.round).join(", "));
+      if (cur()?.key === t.key) { document.documentElement.style.setProperty("--accent", viz.target.map(Math.round).join(", ")); if (S.look.accent === "cover" || S.look.bg === "cover") applyLook(); }
     } catch {}
   };
   img.src = "/api/img?u=" + encodeURIComponent(url);
@@ -1317,7 +1347,8 @@ function drawHero(t) {
   const lo = mine ? viz.low : 0, mi = mine ? viz.mid : 0;
   const base = Math.min(w, h) * 0.36 * (1 + lo * 0.05);
   for (let k = 0; k < 5; k++) {
-    x.strokeStyle = `rgba(242,242,242,${(0.6 - k * 0.11).toFixed(3)})`;
+    const [ar, ag, ab] = S.look.accent === "cover" ? viz.color.map(Math.round) : accentRgb() || [242, 242, 242];
+    x.strokeStyle = `rgba(${ar},${ag},${ab},${(0.6 - k * 0.11).toFixed(3)})`;
     x.lineWidth = d * (k ? 1 : 1.7);
     ring(x, cx, cy, base * (1 + k * 0.07) + lo * k * 6 * d, t * (1 + mi), k, d * (3 + lo * 16 + mi * 6) * (1 + k * 0.3));
   }
@@ -1328,16 +1359,33 @@ function drawPlayer(t, dt) {
   const d = fitCanvas(c), x = c.getContext("2d"), w = c.width, h = c.height, cx = w / 2, cy = h / 2;
   x.clearRect(0, 0, w, h);
   if (lyricsOpen) return;
-  const [r, g, b] = viz.color.map(Math.round);
+  const style = S.look.vizStyle;
+  if (style === "off") return;
+  const [r, g, b] = (accentRgb() && S.look.accent !== "mono" ? accentRgb() : viz.color).map(Math.round);
   const lo = viz.low, mi = viz.mid, hi = viz.high, hit = viz.hit;
-  const cr = $("#plCover").offsetWidth / 2 * d * (1 + lo * 0.11 + hit * 0.06);
+  const cr = $("#plCover").offsetWidth / 2 * d * (1 + lo * 0.11 + hit * 0.06) * (S.look.cover === "square" ? 1.13 : 1);
   const room = Math.min(w / 2, h / 2) - cr;
+  if (style === "minimal") {
+    x.strokeStyle = `rgba(${r},${g},${b},${(0.55 + hit * 0.4).toFixed(3)})`;
+    x.lineWidth = d * (1.5 + lo * 2.5);
+    ring(x, cx, cy, cr + (14 + lo * 16) * d, t, 1, d * (1 + mi * 5));
+    return;
+  }
+  if (style === "waves") {
+    for (let k = 0; k < 6; k++) {
+      const f = k / 6;
+      x.strokeStyle = `rgba(${Math.round(r + (255 - r) * f)},${Math.round(g + (255 - g) * f)},${Math.round(b + (255 - b) * f)},${(0.75 - k * 0.1).toFixed(3)})`;
+      x.lineWidth = d * (k ? 1.3 : 2.4);
+      ring(x, cx, cy, cr + (12 + k * 12) * d + lo * (8 + k * 6) * d, t * (1 + mi), k, d * (3 + lo * 14 + mi * 10 + hi * 4) * (1 + k * 0.35));
+    }
+    return;
+  }
   updateBars(t);
 
   // dust
   x.fillStyle = `rgba(${r},${g},${b},0.75)`;
   x.beginPath();
-  for (const p of dust) {
+  if (S.look.motion !== "reduced") for (const p of dust) {
     p.r += dt * p.v * (0.04 + viz.level * 0.1 + lo * 0.5 + hit * 0.8);
     if (p.r > 1) { p.r = 0; p.a = Math.random() * Math.PI * 2; }
     const rr = cr + p.r * (room + 40 * d) * 1.1, sz = p.s * d * (1 + lo);
@@ -1384,21 +1432,22 @@ function frame(ms) {
   lastFrame = ms;
   viz.level += ((playing() ? 1 : 0) - viz.level) * 0.05;
   for (let i = 0; i < 3; i++) viz.color[i] += (viz.target[i] - viz.color[i]) * 0.05;
-  const [lo, mi, hi, hit] = bandsAt(audio.currentTime || 0).map(v => v * viz.level);
+  const [lo, mi, hi, hit] = bandsAt(audio.currentTime || 0).map(v => v * viz.level * S.look.vizAmt);
   const ease = (k, v, up, down) => { viz[k] += (v - viz[k]) * (v > viz[k] ? up : down); };
   ease("low", lo, 0.6, 0.15); ease("mid", mi, 0.5, 0.15); ease("high", hi, 0.6, 0.2); ease("hit", Math.min(1, hit + viz.kick), 0.8, 0.12);
   viz.kick *= 0.92;
   if (playerOpen) {
     drawPlayer(t, dt);
     const cv = $("#plCover");
-    spin = (spin + dt * 9 * viz.level) % 360;
+    spin = S.look.spin && S.look.cover !== "square" ? (spin + dt * 9 * viz.level) % 360 : spin * 0.9;
     cv.style.scale = (1 + viz.low * 0.11 + viz.hit * 0.06).toFixed(4);
     cv.style.rotate = (spin + Math.sin(t * 1.7) * viz.mid * 2).toFixed(2) + "deg";
-    if (!swiping) {
+    if (!swiping && S.look.motion !== "reduced") {
       const sh = viz.hit > 0.55 ? (viz.hit - 0.55) * 9 : 0;
       cv.style.translate = sh ? `${((Math.random() - 0.5) * sh).toFixed(1)}px ${((Math.random() - 0.5) * sh).toFixed(1)}px` : "";
     }
-    $("#glow1").style.opacity = (0.35 + viz.low * 0.4 + viz.hit * 0.15).toFixed(3);
+    const gk = S.look.plbg === "vivid" ? 1.5 : 1;
+    $("#glow1").style.opacity = ((0.35 + viz.low * 0.4 + viz.hit * 0.15) * gk).toFixed(3);
     $("#glow1").style.scale = (1 + viz.low * 0.08).toFixed(4);
     $("#glow2").style.opacity = (0.25 + viz.high * 0.35).toFixed(3);
   } else if (S.tab === "wave") drawHero(t);
@@ -1518,6 +1567,52 @@ $("#accountsBody").addEventListener("click", e => {
   }
 });
 
+// ================================================================== «Оформление» sheet
+
+function lookOpts(key, items) {
+  return `<div class="opts">${items.map(([v, label, pv]) => `<button class="opt ${S.look[key] === v ? "on" : ""}" data-look="${key}" data-v="${v}"><span class="pv" ${pv?.style ? `style="${pv.style}"` : ""}>${pv?.html ?? ""}</span>${label}</button>`).join("")}</div>`;
+}
+
+function renderLook() {
+  const L = S.look;
+  const sw = ACCENTS.map(([v, name, hex]) => `<button class="sw ${L.accent === v ? "on" : ""}" data-look="accent" data-v="${v}" aria-label="${name}" style="background:${hex || "conic-gradient(#ff6a55,#ffb43d,#c8f53c,#45e0b0,#58b2ff,#b38cff,#ff5ca8,#ff6a55)"}"></button>`).join("");
+  const bgs = BGS.map(([v, name, hex]) => [v, name, { style: `background:${hex || "linear-gradient(135deg,#3a1d14,#0d1322 55%,#0e1812)"};box-shadow:inset 0 0 0 1px rgba(255,255,255,.1)` }]);
+  $("#lookBody").innerHTML = `
+    <div class="ap-sec"><div class="cap">Акцент</div><div class="swatches">${sw}</div></div>
+    <div class="ap-sec"><div class="cap">Фон</div>${lookOpts("bg", bgs)}</div>
+    <div class="ap-sec"><div class="cap">Контраст</div>${lookOpts("contrast", [["normal", "Обычный", { html: "Аа", style: "color:#8a8a8a" }], ["high", "Высокий", { html: "Аа", style: "color:#fff;box-shadow:inset 0 0 0 1px #777" }]])}</div>
+    <div class="ap-sec"><div class="cap">Шрифт</div>${lookOpts("font", [["system", "Обычный", { html: "Аа", style: "font-family:-apple-system,system-ui" }], ["rounded", "Округлый", { html: "Аа", style: "font-family:ui-rounded,'SF Pro Rounded',system-ui" }], ["serif", "С засечками", { html: "Аа", style: "font-family:ui-serif,'New York',Georgia,serif" }], ["mono", "Моно", { html: "Аа", style: "font-family:ui-monospace,'SF Mono',Menlo,monospace" }]])}</div>
+    <div class="ap-sec"><div class="cap">Форма кнопок</div>${lookOpts("shape", [["soft", "Мягкая", { html: '<span style="width:44px;height:20px;border-radius:7px;background:var(--mode)"></span>' }], ["pill", "Капсулы", { html: '<span style="width:44px;height:20px;border-radius:10px;background:var(--mode)"></span>' }], ["sharp", "Острая", { html: '<span style="width:44px;height:20px;border-radius:2px;background:var(--mode)"></span>' }]])}</div>
+    <div class="ap-sec"><div class="cap">Плеер</div>
+      ${lookOpts("cover", [["round", "Пластинка", { html: '<span style="width:26px;height:26px;border-radius:50%;background:var(--mode)"></span>' }], ["square", "Квадрат", { html: '<span style="width:26px;height:26px;border-radius:6px;background:var(--mode)"></span>' }]])}
+      <div style="height:8px"></div>
+      ${lookOpts("plbg", [["glass", "Стекло", { style: "background:linear-gradient(135deg,#3a2a24,#141414)" }], ["vivid", "Ярко", { style: "background:linear-gradient(135deg,#b4553a,#3a1d60)" }], ["black", "Чёрный", { style: "background:#050505;box-shadow:inset 0 0 0 1px #2a2a2a" }]])}
+      <div class="ap-row"><div><div class="t">Вращать обложку</div><div class="s">Крутится как пластинка, пока играет (только круглая)</div></div><button class="switch ${L.spin ? "on" : ""}" data-look="spin" aria-label="Вращать обложку"></button></div>
+    </div>
+    <div class="ap-sec"><div class="cap">Визуализатор</div>
+      ${lookOpts("vizStyle", [["bars", "Полосы", { html: '<svg viewBox="0 0 24 24"><path d="M5 15v-4M9 17V7M13 19V5M17 16V8M21 14v-4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>' }], ["waves", "Волны", { html: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="5" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="1.2" opacity=".6"/></svg>' }], ["minimal", "Минимум", { html: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="7" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>' }], ["off", "Выкл", { html: "—" }]])}
+      <div style="height:8px"></div>
+      ${lookOpts("vizAmt", [["0.6", "Спокойно", { html: "∿" }], ["1", "Обычно", { html: "〰" }], ["1.5", "Мощно", { html: "≋" }]])}
+    </div>
+    <div class="ap-sec"><div class="ap-row"><div><div class="t">Меньше движения</div><div class="s">Без дрожи, частиц и плавающего света</div></div><button class="switch ${L.motion === "reduced" ? "on" : ""}" data-look="motion" aria-label="Меньше движения"></button></div></div>
+    <button class="btn sec ap-reset" data-look="reset">Вернуть как было</button>`;
+  // the intensity buttons store numbers: mark the active one by value
+  $("#lookBody").querySelectorAll('[data-look="vizAmt"]').forEach(b => b.classList.toggle("on", +b.dataset.v === +L.vizAmt));
+}
+
+$("#lookBody").addEventListener("click", e => {
+  const b = e.target.closest("[data-look]");
+  if (!b) return;
+  const k = b.dataset.look, v = b.dataset.v;
+  if (k === "reset") S.look = { ...LOOK_DEFAULT };
+  else if (k === "spin") S.look.spin = !S.look.spin;
+  else if (k === "motion") S.look.motion = S.look.motion === "reduced" ? "full" : "reduced";
+  else if (k === "vizAmt") S.look.vizAmt = +v;
+  else S.look[k] = v;
+  saveS(); applyLook(); renderLook(); placeBlob();
+});
+$("#lookBtn").addEventListener("click", () => { renderLook(); openSheet($("#look")); });
+
 // ================================================================== artist page (Yandex)
 
 const AR = { id: null, name: "", req: 0 };
@@ -1590,6 +1685,7 @@ document.addEventListener("contextmenu", e => { if (!e.target.closest("input, te
 
 // ================================================================== start
 
+applyLook();
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").then(r => r.update()).catch(() => {});
 renderAll();
 showTab(S.tab || "wave");

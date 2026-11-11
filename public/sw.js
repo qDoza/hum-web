@@ -1,7 +1,7 @@
 ﻿// Opens the app instantly from the phone's cache and refreshes that cache in the background,
 // so a launch never waits for the network. API calls always go to the network.
-const CACHE = "hum-v8";
-const SHELL = ["/", "/app.css?v=8", "/app.js?v=8", "/manifest.webmanifest", "/icons/icon-192.png", "/icons/apple-touch-icon.png"];
+const CACHE = "hum-v9";
+const SHELL = ["/", "/app.css?v=9", "/app.js?v=9", "/manifest.webmanifest", "/icons/icon-192.png", "/icons/apple-touch-icon.png"];
 
 self.addEventListener("install", e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));

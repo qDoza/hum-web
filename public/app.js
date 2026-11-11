@@ -6,7 +6,7 @@ const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": 
 const fmt = ms => { const s = Math.max(0, Math.floor((ms || 0) / 1000)); return s >= 3600 ? `${Math.floor(s / 3600)}:${String(Math.floor(s / 60) % 60).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}` : `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; };
 const shuffle = a => a.map(v => [Math.random(), v]).sort((x, y) => x[0] - y[0]).map(x => x[1]);
 const plural = n => n % 10 === 1 && n % 100 !== 11 ? "трек" : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 12 || n % 100 > 14) ? "трека" : "треков";
-const VERSION = "5";
+const VERSION = "6";
 
 // ================================================================== storage
 // Tokens are kept twice (localStorage and a first-party cookie), so a home-screen app that loses one
@@ -44,6 +44,39 @@ if (tokens.ya || tokens.sc) saveTokens();
 navigator.storage?.persist?.().catch(() => {});
 
 const isStandalone = () => navigator.standalone === true || matchMedia("(display-mode: standalone)").matches;
+
+// iPhone home-screen apps sometimes get a viewport one status bar shorter than the screen while drawing
+// from the very top: everything sits too high (the header under the clock) with a gap at the bottom.
+// Measure it and stretch the app over the whole screen ourselves.
+const vp = { st: 0, sb: 0, H: 0, ih: 0, gap: 0 };
+function fixViewport() {
+  const root = document.documentElement;
+  const probe = document.createElement("div");
+  probe.style.cssText = "position:fixed;top:0;left:0;visibility:hidden;pointer-events:none;padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom)";
+  document.body.appendChild(probe);
+  const cs = getComputedStyle(probe);
+  vp.st = parseFloat(cs.paddingTop) || 0; vp.sb = parseFloat(cs.paddingBottom) || 0;
+  probe.remove();
+  const portrait = innerHeight >= innerWidth;
+  vp.H = portrait ? Math.max(screen.height, screen.width) : Math.min(screen.height, screen.width);
+  vp.ih = innerHeight;
+  const ios = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  vp.gap = ios && isStandalone() ? Math.max(0, vp.H - innerHeight) : 0;
+  for (const k of ["--app-h", "--gap", "--safe-t", "--safe-b"]) root.style.removeProperty(k);
+  if (vp.gap > 8) {
+    root.style.setProperty("--app-h", vp.H + "px");
+    root.style.setProperty("--gap", vp.gap + "px");
+    root.style.setProperty("--safe-t", Math.max(vp.st, vp.gap) + "px");
+    root.style.setProperty("--safe-b", Math.max(vp.sb, 21) + "px");
+  } else if (ios && isStandalone() && vp.st === 0 && screen.height >= 812) {
+    root.style.setProperty("--safe-t", "50px");
+    root.style.setProperty("--safe-b", Math.max(vp.sb, 21) + "px");
+  }
+}
+fixViewport();
+addEventListener("resize", () => requestAnimationFrame(fixViewport));
+addEventListener("orientationchange", () => setTimeout(fixViewport, 300));
+setTimeout(fixViewport, 600);
 
 // ================================================================== pairing
 // Desktop QR: https://…/#p=<id>.<key>. The Worker holds only the AES-GCM ciphertext under <id>
@@ -362,6 +395,7 @@ async function go(i) {
     if (g !== P.gen) return;
     t._direct = url;
     audio.src = url;
+    if (!document.hidden) analyze(t);
     await audio.play();
   } catch (e) {
     if (g !== P.gen) return;
@@ -1060,7 +1094,7 @@ $("#plVibe").addEventListener("click", startVibe);
 $("#lyricsBtn").addEventListener("click", () => setLyrics(!lyricsOpen));
 $("#plTags").addEventListener("click", e => { if (e.target.closest("[data-act=lyrics]")) setLyrics(!lyricsOpen); });
 
-let playerOpen = false;
+let playerOpen = false, swiping = false;
 function openPlayer() {
   playerOpen = true;
   pl.hidden = false;
@@ -1086,7 +1120,7 @@ function closePlayer() {
     const dx = e.touches[0].clientX - x0, dy = e.touches[0].clientY - y0;
     if (!mode && Math.hypot(dx, dy) > 8) mode = Math.abs(dy) > Math.abs(dx) ? (dy > 0 ? "down" : "none") : e.target.closest("#plStage") ? "side" : "none";
     if (mode === "down") { pl.classList.add("drag"); pl.style.transform = `translateY(${Math.max(0, dy)}px)`; }
-    if (mode === "side") $("#plCover").style.translate = `${dx * 0.35}px 0`;
+    if (mode === "side") swiping = true, $("#plCover").style.translate = `${dx * 0.35}px 0`;
   }, { passive: true });
   pl.addEventListener("touchend", e => {
     const dx = e.changedTouches[0].clientX - x0, dy = e.changedTouches[0].clientY - y0, v = dy / Math.max(1, Date.now() - t0);
@@ -1094,7 +1128,7 @@ function closePlayer() {
       if (dy > 120 || v > 0.6) closePlayer();
       else { pl.classList.remove("drag"); pl.style.transform = ""; }
     } else if (mode === "side") {
-      $("#plCover").style.translate = "";
+      swiping = false; $("#plCover").style.translate = "";
       if (dx < -60) next(); else if (dx > 60) prev();
     } else if (!mode && e.target.closest("#plCover")) {
       if (Date.now() - lastTap < 320) { const t = cur(); if (t && !isLiked(t)) toggleLike(t); heartBurst(); lastTap = 0; }
@@ -1111,7 +1145,7 @@ function heartBurst() {
 
 // ================================================================== visuals: cover light + rings
 
-const viz = { color: [200, 200, 200], target: [200, 200, 200], level: 0, energy: 0, bpm: 110, kick: 0 };
+const viz = { color: [200, 200, 200], target: [200, 200, 200], level: 0, low: 0, mid: 0, high: 0, hit: 0, bpm: 110, kick: 0 };
 const hash = s => [...s].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7);
 
 // the dominant vivid colour of the cover tints the rings, the play-button glow and the lyrics
@@ -1145,13 +1179,68 @@ function lift([r, g, b]) {
   return out.map(v => Math.min(255, avg + (v - avg) * 1.25));
 }
 
-// No real beat detection: tapping the audio with Web Audio on iPhone breaks background playback.
-// The rings follow a steady pulse per track that starts, stops and seeks with the music.
+// ---------- beat analysis
+// Tapping the playing <audio> with Web Audio would mute it in the background on iPhone, so the track is
+// fetched a second time (same origin, through the Worker), decoded at 16 kHz and boiled down to four
+// curves at 50 frames/s: bass, mids, highs and onsets. The visuals then follow the real music by time.
+// SoundCloud streams are HLS segments, which can't be decoded this way: they get a synthetic pulse.
+
+const ana = { key: null, low: null, mid: null, high: null, hit: null };
+globalThis.humViz = () => ({ track: ana.key, frames: ana.low?.length || 0, viz: { ...viz } });
+
+async function analyze(t) {
+  if (!t || t.src !== "ya" || !t._direct || S.viz === false || ana.key === t.key) return;
+  ana.key = t.key; ana.low = null;
+  try {
+    const r = await fetch("/api/pipe?u=" + encodeURIComponent(t._direct));
+    if (!r.ok || ana.key !== t.key) return;
+    const data = await r.arrayBuffer();
+    if (ana.key !== t.key) return;
+    const AC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+    const ab = await new Promise((ok, no) => { const p = new AC(1, 16000, 16000).decodeAudioData(data, ok, no); p?.catch?.(no); });
+    if (ana.key !== t.key) return;
+    const sr = ab.sampleRate, c0 = ab.getChannelData(0), c1 = ab.numberOfChannels > 1 ? ab.getChannelData(1) : null;
+    const hop = Math.round(sr / 50), n = Math.floor(c0.length / hop);
+    const low = new Float32Array(n), mid = new Float32Array(n), high = new Float32Array(n), hit = new Float32Array(n);
+    const k = f => Math.exp(-2 * Math.PI * f / sr);
+    const aL = k(140), aM1 = k(350), aM2 = k(2500), aH = k(5000);
+    let l = 0, m1 = 0, m2 = 0, h = 0;
+    for (let i = 0, s = 0; i < n; i++) {
+      let el = 0, em = 0, eh = 0;
+      for (let j = 0; j < hop; j++, s++) {
+        const x = c1 ? (c0[s] + c1[s]) * 0.5 : c0[s];
+        l = l * aL + x * (1 - aL); m1 = m1 * aM1 + x * (1 - aM1); m2 = m2 * aM2 + x * (1 - aM2); h = h * aH + x * (1 - aH);
+        el += l * l; em += (m2 - m1) * (m2 - m1); eh += (x - h) * (x - h);
+      }
+      low[i] = Math.sqrt(el / hop); mid[i] = Math.sqrt(em / hop); high[i] = Math.sqrt(eh / hop);
+    }
+    for (let i = 1; i < n; i++) hit[i] = Math.max(0, low[i] - low[i - 1]) * 2 + Math.max(0, mid[i] - mid[i - 1]);
+    // stretch each curve between its quiet (4th) and loud (97th) percentile, so every track fills the range
+    const norm = a => { const s = Float32Array.from(a).sort(), lo = s[Math.floor(s.length * 0.04)], hi = s[Math.floor(s.length * 0.97)] || 1, span = Math.max(1e-6, hi - lo); for (let i = 0; i < a.length; i++) a[i] = Math.min(1.3, Math.max(0, (a[i] - lo) / span)); };
+    // mids and highs barely change in level; what the eye wants is their attacks, so mix those in
+    const punch = a => { const tr = new Float32Array(a.length); let avg = a[0] || 0; for (let i = 0; i < a.length; i++) { tr[i] = Math.max(0, a[i] - avg); avg += (a[i] - avg) * 0.08; } norm(tr); for (let i = 0; i < a.length; i++) a[i] = a[i] * 0.7 + tr[i] * 0.55; };
+    [low, mid, high, hit].forEach(norm);
+    punch(mid); punch(high);
+    Object.assign(ana, { low, mid, high, hit });
+  } catch { if (ana.key === t.key) ana.key = null; }
+}
+
+// a steady per-track pulse for whatever couldn't be analysed
 function pulseAt(sec) {
   const bp = 60 / viz.bpm, ph = (sec % bp) / bp, beat = Math.floor(sec / bp) % 4;
-  const kick = Math.exp(-ph * 7) * (beat === 0 ? 1 : beat === 2 ? 0.8 : 0.55);
-  const hat = Math.exp(-(((ph + 0.5) % 1)) * 10) * 0.28;
-  return kick + hat;
+  const kick = Math.exp(-ph * 7) * (beat === 0 ? 1 : beat === 2 ? 0.85 : 0.6);
+  const snare = beat % 2 ? Math.exp(-ph * 9) * 0.7 : 0;
+  const hat = Math.exp(-(((ph * 2) % 1)) * 10) * 0.5;
+  return [kick, 0.35 + snare + 0.15 * Math.sin(sec * 1.7), 0.25 + hat, ph < 0.08 ? kick : 0];
+}
+
+function bandsAt(sec) {
+  const c = cur();
+  if (ana.low && c && ana.key === c.key) {
+    const i = Math.min(ana.low.length - 1, Math.max(0, Math.round(sec * 50) + 1));
+    return [ana.low[i], ana.mid[i], ana.high[i], ana.hit[i]];
+  }
+  return pulseAt(sec);
 }
 
 function fitCanvas(c) {
@@ -1172,63 +1261,118 @@ function ring(x, cx, cy, r, t, k, amp) {
   x.stroke();
 }
 
+// 64 bars per half, mirrored left/right: bass at the top, highs at the bottom, like the music channels
+const BARS = 64;
+const barVals = new Float32Array(BARS);
+const barSeed = Float32Array.from({ length: BARS }, (_, i) => Math.sin(i * 12.9898) * 43758.5453 % 1);
+
+function updateBars(t) {
+  const [lo, mi, hi] = [viz.low, viz.mid, viz.high];
+  for (let i = 0; i < BARS; i++) {
+    const f = i / (BARS - 1);
+    const band = f < 0.28 ? lo * (1.1 - f) + mi * f : f < 0.7 ? mi * (0.85 + 0.3 * Math.sin(f * 9 + t * 1.3)) + lo * 0.15 : hi * (0.75 + 0.35 * Math.sin(f * 17 - t * 2.1)) + mi * 0.12;
+    const wob = 0.65 + 0.35 * Math.sin(t * (3 + barSeed[i] * 4) + i * 0.8) * Math.sin(t * 1.3 + i * 0.37);
+    const target = Math.max(0, band * wob) * viz.level;
+    barVals[i] += (target - barVals[i]) * (target > barVals[i] ? 0.55 : 0.14);
+  }
+}
+
+// dust that flies out of the cover; bass pushes it faster
+const dust = Array.from({ length: 70 }, () => ({ a: Math.random() * Math.PI * 2, r: Math.random(), v: 0.2 + Math.random() * 0.8, s: 0.6 + Math.random() * 1.6 }));
+
 function drawHero(t) {
   const c = $("#heroRings");
   if (!c || !c.offsetParent) return;
   const d = fitCanvas(c), x = c.getContext("2d"), w = c.width, h = c.height, cx = w / 2, cy = h / 2;
   x.clearRect(0, 0, w, h);
   const mine = isWave() && P.ctxSrc === S.source && cur();
-  const e = mine ? viz.energy : 0;
-  const base = Math.min(w, h) * 0.36;
+  const lo = mine ? viz.low : 0, mi = mine ? viz.mid : 0;
+  const base = Math.min(w, h) * 0.36 * (1 + lo * 0.05);
   for (let k = 0; k < 5; k++) {
     x.strokeStyle = `rgba(242,242,242,${(0.6 - k * 0.11).toFixed(3)})`;
     x.lineWidth = d * (k ? 1 : 1.7);
-    ring(x, cx, cy, base * (1 + k * 0.07) + e * k * 4 * d, t, k, d * (3 + e * 12) * (1 + k * 0.3));
+    ring(x, cx, cy, base * (1 + k * 0.07) + lo * k * 6 * d, t * (1 + mi), k, d * (3 + lo * 16 + mi * 6) * (1 + k * 0.3));
   }
 }
 
-function drawPlayer(t) {
+function drawPlayer(t, dt) {
   const c = $("#plRings");
   const d = fitCanvas(c), x = c.getContext("2d"), w = c.width, h = c.height, cx = w / 2, cy = h / 2;
   x.clearRect(0, 0, w, h);
   if (lyricsOpen) return;
   const [r, g, b] = viz.color.map(Math.round);
-  const e = viz.energy;
-  const cr = $("#plCover").offsetWidth / 2 * d * (1 + e * 0.03);
-  // spectrum ticks hugging the cover
-  const N = 96;
-  x.lineCap = "round";
-  x.lineWidth = 2 * d;
-  for (let i = 0; i < N; i++) {
-    const a = i / N * Math.PI * 2 - Math.PI / 2;
-    const v = 0.5 + 0.5 * Math.sin(i * 0.9 + t * 2.6) * Math.sin(i * 0.37 - t * 1.7);
-    const len = (2 + viz.level * 3 + e * 20 * v + viz.kick * 10 * v) * d;
-    const r0 = cr + 9 * d;
-    x.strokeStyle = `rgba(${r},${g},${b},${(0.35 + v * 0.45).toFixed(3)})`;
-    x.beginPath(); x.moveTo(cx + Math.cos(a) * r0, cy + Math.sin(a) * r0); x.lineTo(cx + Math.cos(a) * (r0 + len), cy + Math.sin(a) * (r0 + len)); x.stroke();
+  const lo = viz.low, mi = viz.mid, hi = viz.high, hit = viz.hit;
+  const cr = $("#plCover").offsetWidth / 2 * d * (1 + lo * 0.11 + hit * 0.06);
+  const room = Math.min(w / 2, h / 2) - cr;
+  updateBars(t);
+
+  // dust
+  x.fillStyle = `rgba(${r},${g},${b},0.75)`;
+  x.beginPath();
+  for (const p of dust) {
+    p.r += dt * p.v * (0.04 + viz.level * 0.1 + lo * 0.5 + hit * 0.8);
+    if (p.r > 1) { p.r = 0; p.a = Math.random() * Math.PI * 2; }
+    const rr = cr + p.r * (room + 40 * d) * 1.1, sz = p.s * d * (1 + lo);
+    const px = cx + Math.cos(p.a) * rr, py = cy + Math.sin(p.a) * rr;
+    x.globalAlpha = Math.min(1, (1 - p.r) * 1.4);
+    x.moveTo(px + sz, py); x.arc(px, py, sz, 0, Math.PI * 2);
   }
-  // flowing rings
-  for (let k = 0; k < 4; k++) {
-    const mixW = k / 4;
-    x.strokeStyle = `rgba(${Math.round(r + (255 - r) * mixW)},${Math.round(g + (255 - g) * mixW)},${Math.round(b + (255 - b) * mixW)},${(0.62 - k * 0.13).toFixed(3)})`;
-    x.lineWidth = d * (k ? 1.1 : 1.8);
-    ring(x, cx, cy, cr + (40 + k * 13) * d + e * k * 5 * d, t, k, d * (3 + viz.level * 3 + e * 12) * (1 + k * 0.45));
+  x.fill();
+  x.globalAlpha = 1;
+
+  // mirrored spectrum bars with a glow
+  const r0 = cr + 7 * d, maxLen = Math.max(18 * d, room - 14 * d);
+  const bars = (scale, width, alpha, glow) => {
+    x.beginPath();
+    for (let side = -1; side <= 1; side += 2)
+      for (let i = 0; i < BARS; i++) {
+        const a = -Math.PI / 2 + side * (i + 0.5) / BARS * Math.PI;
+        const len = (2.5 * d + barVals[i] * maxLen * scale);
+        x.moveTo(cx + Math.cos(a) * r0, cy + Math.sin(a) * r0);
+        x.lineTo(cx + Math.cos(a) * (r0 + len), cy + Math.sin(a) * (r0 + len));
+      }
+    x.lineWidth = width * d; x.lineCap = "round";
+    x.strokeStyle = `rgba(${r},${g},${b},${alpha})`;
+    x.shadowColor = `rgba(${r},${g},${b},0.9)`; x.shadowBlur = glow * d;
+    x.stroke();
+    x.shadowBlur = 0;
+  };
+  bars(1, 3.2, 0.9, 10 + lo * 18);
+  bars(0.55, 1.4, 0.95, 0);
+
+  // two thin waves riding just outside the bars
+  for (let k = 0; k < 2; k++) {
+    x.strokeStyle = `rgba(255,255,255,${(0.35 - k * 0.15 + hit * 0.3).toFixed(3)})`;
+    x.lineWidth = d * (1.2 - k * 0.4);
+    ring(x, cx, cy, r0 + maxLen * (0.55 + k * 0.25) + lo * 10 * d, t * (1 + mi * 1.5), k + 3, d * (2 + mi * 9 + hi * 5) * (1 + k));
   }
 }
 
+let lastFrame = 0, spin = 0;
 function frame(ms) {
   requestAnimationFrame(frame);
   if (document.hidden) return;
-  const t = ms / 1000;
-  viz.level += ((playing() ? 1 : 0) - viz.level) * 0.04;
+  const t = ms / 1000, dt = Math.min(0.05, (ms - lastFrame) / 1000 || 0.016);
+  lastFrame = ms;
+  viz.level += ((playing() ? 1 : 0) - viz.level) * 0.05;
   for (let i = 0; i < 3; i++) viz.color[i] += (viz.target[i] - viz.color[i]) * 0.05;
-  const p = viz.level * pulseAt(audio.currentTime || 0);
-  viz.energy += (p - viz.energy) * (p > viz.energy ? 0.6 : 0.18);
+  const [lo, mi, hi, hit] = bandsAt(audio.currentTime || 0).map(v => v * viz.level);
+  const ease = (k, v, up, down) => { viz[k] += (v - viz[k]) * (v > viz[k] ? up : down); };
+  ease("low", lo, 0.6, 0.15); ease("mid", mi, 0.5, 0.15); ease("high", hi, 0.6, 0.2); ease("hit", Math.min(1, hit + viz.kick), 0.8, 0.12);
   viz.kick *= 0.92;
   if (playerOpen) {
-    drawPlayer(t);
-    $("#plCover").style.scale = (1 + viz.energy * 0.025 + viz.kick * 0.04).toFixed(4);
-    $("#glow1").style.opacity = (0.42 + viz.energy * 0.28).toFixed(3);
+    drawPlayer(t, dt);
+    const cv = $("#plCover");
+    spin = (spin + dt * 9 * viz.level) % 360;
+    cv.style.scale = (1 + viz.low * 0.11 + viz.hit * 0.06).toFixed(4);
+    cv.style.rotate = (spin + Math.sin(t * 1.7) * viz.mid * 2).toFixed(2) + "deg";
+    if (!swiping) {
+      const sh = viz.hit > 0.55 ? (viz.hit - 0.55) * 9 : 0;
+      cv.style.translate = sh ? `${((Math.random() - 0.5) * sh).toFixed(1)}px ${((Math.random() - 0.5) * sh).toFixed(1)}px` : "";
+    }
+    $("#glow1").style.opacity = (0.35 + viz.low * 0.4 + viz.hit * 0.15).toFixed(3);
+    $("#glow1").style.scale = (1 + viz.low * 0.08).toFixed(4);
+    $("#glow2").style.opacity = (0.25 + viz.high * 0.35).toFixed(3);
   } else if (S.tab === "wave") drawHero(t);
 }
 requestAnimationFrame(frame);
@@ -1324,7 +1468,8 @@ function openAccounts() {
      <p class="note">Проще всего перенести аккаунты с компьютера: в HUM на ПК откройте «Аккаунты» → «Подключить iPhone» и наведите камеру на QR-код.</p>
      <p class="note">Чтобы HUM открывался как приложение: Safari → «Поделиться» → «На экран „Домой“».</p>
      <p class="note">Токены хранятся только на этом телефоне и уходят лишь в ваш собственный сервер HUM, который передаёт запросы сервисам.</p>
-     <p class="note" style="opacity:.6">HUM web · версия ${VERSION}${isStandalone() ? " · приложение" : " · Safari"}</p>`;
+     <div class="acc toggle"><div><div class="t">Живой визуализатор</div><div class="s">Кольца и полосы двигаются по настоящему звуку трека Яндекса. Для этого трек скачивается ещё раз — вдвое больше трафика.</div></div><button class="switch ${S.viz !== false ? "on" : ""}" data-act="viz" aria-label="Живой визуализатор"></button></div>
+     <p class="note" style="opacity:.6">HUM web · версия ${VERSION}${isStandalone() ? " · приложение" : " · Safari"} · экран ${vp.H}/${vp.ih}, отступы ${Math.round(vp.st)}/${Math.round(vp.sb)}${vp.gap ? ", поправка " + vp.gap : ""}</p>`;
   openSheet($("#accounts"));
 }
 $("#accountsBtn").addEventListener("click", openAccounts);
@@ -1334,6 +1479,7 @@ $("#accountsBody").addEventListener("click", e => {
   const src = b.dataset.v;
   if (b.dataset.act === "logout") { delete tokens[src]; acc[src] = null; saveTokens(); store.set("acc", { ya: acc.ya, sc: acc.sc }); lib.liked = lib.liked.filter(t => t.src !== src); lib.keys = new Set(lib.liked.map(t => t.key)); openAccounts(); renderAll(); }
   if (b.dataset.act === "code") submitCode($("#accCode"));
+  if (b.dataset.act === "viz") { S.viz = S.viz === false; saveS(); b.classList.toggle("on", S.viz); if (S.viz) analyze(cur()); else { ana.key = null; ana.low = null; } }
   if (b.dataset.act === "save") {
     let v = $(`[data-token="${src}"]`).value.trim();
     const m = v.match(/access_token=([^&#\s]+)/); if (m) v = decodeURIComponent(m[1]);
@@ -1354,6 +1500,7 @@ takePairCode().then(connect);
 // home-screen apps resume from memory: pick up a new pairing link or a check that failed offline
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) return;
+  if (cur()?._direct) analyze(cur());
   if (location.hash.startsWith("#p=")) takePairCode().then(connect);
   else if ((tokens.ya && !acc.ya) || (tokens.sc && !acc.sc)) connect();
 });

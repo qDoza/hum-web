@@ -32,6 +32,8 @@ export default {
       if (p === "/api/sc-client-id") return json({ clientId: await clientId(url.searchParams.get("fresh") === "1") });
       if (p.startsWith("/api/sc/")) return await proxySoundCloud(request, p.slice(8) + url.search);
       if (p === "/api/pipe") return await pipe(request, url.searchParams.get("u"));
+      if (p === "/api/pair" && request.method === "POST") return await pairPut(request, env);
+      if (p.startsWith("/api/pair/")) return await pairTake(env, p.slice(10));
       if (p.startsWith("/api/")) return json({ error: "not found" }, 404);
     } catch (e) {
       return json({ error: String(e?.message || e) }, 502);
@@ -136,6 +138,30 @@ async function proxySoundCloud(request, pathAndQuery, retried = false) {
   // a stale client_id answers 401/403: refresh it once
   if ((r.status === 401 || r.status === 403) && !retried && !t) return proxySoundCloud(request, pathAndQuery, true);
   return relay(r);
+}
+
+// ------------------------------------------------------------------ pairing (desktop → iPhone)
+// Desktop HUM encrypts the tokens (AES-GCM) and parks only the ciphertext here under a short id.
+// The key stays in the QR link's #fragment, which never reaches this server, so the Worker cannot
+// read the tokens. A code lives 15 minutes (or what the desktop asks, max 6 h) and is gone after one read.
+
+async function pairPut(request, env) {
+  const body = await request.json().catch(() => null);
+  const blob = body?.blob;
+  if (typeof blob !== "string" || blob.length > 8000 || !/^[A-Za-z0-9_-]+$/.test(blob)) return json({ error: "bad blob" }, 400);
+  const ttl = Math.min(6 * 3600, Math.max(60, +body.ttl || 900));
+  const bytes = crypto.getRandomValues(new Uint8Array(6));
+  const id = [...bytes].map(b => "abcdefghjkmnpqrstuvwxyz23456789"[b % 31]).join("");
+  await env.PAIR.put(id, blob, { expirationTtl: ttl });
+  return json({ id, ttl });
+}
+
+async function pairTake(env, id) {
+  if (!/^[a-z0-9]{6}$/.test(id)) return json({ error: "bad id" }, 400);
+  const blob = await env.PAIR.get(id);
+  if (!blob) return json({ error: "код истёк или уже использован" }, 404);
+  await env.PAIR.delete(id);
+  return json({ blob });
 }
 
 // ------------------------------------------------------------------ audio pipe (fallback)

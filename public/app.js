@@ -1,4 +1,4 @@
-// HUM web — the iPhone version of the desktop tray player.
+﻿// HUM web — the iPhone version of the desktop tray player.
 // Talks only to its own Worker (/api/*); tokens stay in this phone's storage.
 
 const $ = s => document.querySelector(s);
@@ -20,8 +20,40 @@ const S = Object.assign({
 const saveS = () => store.set("settings", S);
 let tokens = store.get("tokens", {});
 
-// accounts arrive from the desktop app as a QR link: https://…/#pair=<base64url JSON>.
-// The fragment never reaches any server.
+const VERSION = "4";
+
+const b64url = s => Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((s.length + 3) % 4)), c => c.charCodeAt(0));
+
+// Short one-time QR from desktop HUM: https://…/#p=<id>.<key>. The Worker holds only the AES-GCM
+// ciphertext under <id> (gone after one read); the key never leaves this #fragment.
+let pairing = null;
+function takePairCode() { return pairing ??= takePairCodeOnce().finally(() => { pairing = null; }); }
+
+async function takePairCodeOnce() {
+  const m = location.hash.match(/^#p=([a-z0-9]{6})\.([A-Za-z0-9_-]{43})$/);
+  if (!m) return;
+  history.replaceState(null, "", "/");
+  try {
+    // a fresh code may take a few seconds to reach the nearest Cloudflare location: retry for ~10 s
+    let r, j;
+    for (let attempt = 0; attempt < 6; attempt++) {
+      r = await fetch("/api/pair/" + m[1], { cache: "no-store" });
+      j = await r.json();
+      if (r.ok || r.status !== 404) break;
+      await new Promise(res => setTimeout(res, 1800));
+    }
+    if (!r.ok) throw new Error(j.error || "код недействителен");
+    const raw = b64url(j.blob);
+    const key = await crypto.subtle.importKey("raw", b64url(m[2]), "AES-GCM", false, ["decrypt"]);
+    const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv: raw.slice(0, 12) }, key, raw.slice(12));
+    const o = JSON.parse(new TextDecoder().decode(plain));
+    tokens = { ...tokens, ...(o.ya ? { ya: o.ya } : {}), ...(o.sc ? { sc: o.sc } : {}) };
+    store.set("tokens", tokens);
+    setTimeout(() => toast("Аккаунты перенесены с компьютера"), 400);
+  } catch (e) { setTimeout(() => toast("Не удалось перенести: " + e.message), 400); }
+}
+
+// the older, long form: https://…/#pair=<base64url JSON> (still accepted)
 if (location.hash.startsWith("#pair=")) {
   try {
     const b64 = location.hash.slice(6).replace(/-/g, "+").replace(/_/g, "/");
@@ -873,7 +905,8 @@ function openAccounts() {
   $("#accountsBody").innerHTML = row("ya", "OAuth-токен Яндекса", "Яндекс") + row("sc", "oauth_token SoundCloud", "SoundCloud") +
     `<p class="note">Проще всего перенести аккаунты с компьютера: в HUM на ПК откройте «Аккаунты» → «Подключить iPhone» и наведите камеру на QR-код.</p>
      <p class="note">Чтобы HUM открывался как приложение: Safari → «Поделиться» → «На экран „Домой“».</p>
-     <p class="note">Токены хранятся только на этом телефоне и уходят лишь в ваш собственный сервер HUM, который передаёт запросы сервисам.</p>`;
+     <p class="note">Токены хранятся только на этом телефоне и уходят лишь в ваш собственный сервер HUM, который передаёт запросы сервисам.</p>
+     <p class="note" style="opacity:.6">HUM web · версия ${VERSION}</p>`;
   $("#accounts").hidden = false;
 }
 $("#accountsBtn").addEventListener("click", openAccounts);
@@ -895,8 +928,11 @@ $("#accountsBody").addEventListener("click", e => {
 
 // ================================================================== start
 
-if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
+if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").then(r => r.update()).catch(() => {});
 renderAll();
 showTab(S.tab || "wave");
 requestAnimationFrame(placeBlob);
-connect();
+takePairCode().then(connect);
+// home-screen apps resume from memory: re-check accounts when coming back
+document.addEventListener("visibilitychange", () => { if (!document.hidden && location.hash.startsWith("#p=")) takePairCode().then(connect); });
+addEventListener("hashchange", () => { if (location.hash.startsWith("#p=")) takePairCode().then(connect); });

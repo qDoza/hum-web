@@ -8,3 +8,8 @@ directory = "./public"
 binding = "ASSETS"
 not_found_handling = "single-page-application"
 run_worker_first = ["/api/*"]
+
+# one-time pairing codes from desktop HUM: encrypted blobs only, 15 min TTL, deleted on first read
+[[kv_namespaces]]
+binding = "PAIR"
+id = "c49dc980e1cb4c3da247becab453131f"

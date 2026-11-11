@@ -6,7 +6,7 @@ const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": 
 const fmt = ms => { const s = Math.max(0, Math.floor((ms || 0) / 1000)); return s >= 3600 ? `${Math.floor(s / 3600)}:${String(Math.floor(s / 60) % 60).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}` : `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; };
 const shuffle = a => a.map(v => [Math.random(), v]).sort((x, y) => x[0] - y[0]).map(x => x[1]);
 const plural = n => n % 10 === 1 && n % 100 !== 11 ? "трек" : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 12 || n % 100 > 14) ? "трека" : "треков";
-const VERSION = "7";
+const VERSION = "8";
 
 // ================================================================== storage
 // Tokens are kept twice (localStorage and a first-party cookie), so a home-screen app that loses one
@@ -182,6 +182,7 @@ function yaTrack(n) {
     src: "ya", id: al?.id ? `${id}:${al.id}` : id, key: "ya:" + id,
     title: (n.title || "Без названия") + (n.version ? ` (${n.version})` : ""),
     artist: (n.artists || []).map(a => a.name).filter(Boolean).join(", ") || "—",
+    artists: (n.artists || []).filter(a => a.id && a.name && !a.various).map(a => ({ id: String(a.id), name: a.name })),
     album: al?.title, dur: n.durationMs || 0,
     cover: cv ? "https://" + cv.replace("%%", "200x200") : null,
     big: cv ? "https://" + cv.replace("%%", "600x600") : null,
@@ -896,7 +897,7 @@ function wirePad() {
 
 // ================================================================== UI: track rows (likes + search)
 
-const lists = { likes: [], search: [], recent: [] };
+const lists = { likes: [], search: [], recent: [], arpop: [], arall: [] };
 
 function rowHtml(t, list, i = -1) {
   const liked = isLiked(t), c = cur();
@@ -910,13 +911,14 @@ function rowHtml(t, list, i = -1) {
 function onRowsClick(e) {
   const b = e.target.closest("[data-act]");
   if (!b || (b.dataset.act !== "like" && b.dataset.act !== "play")) return;
-  const all = [...lists.likes, ...lists.search, ...lists.recent, ...P.queue, ...lib.liked];
+  const all = [...lists.likes, ...lists.search, ...lists.recent, ...lists.arpop, ...lists.arall, ...P.queue, ...lib.liked];
   const t = all.find(x => x.key === b.dataset.key);
   if (!t) return;
   if (b.dataset.act === "like") { e.stopPropagation(); toggleLike(t); return; }
   unlock();
   if (cur()?.key === t.key) return toggle();
   const name = b.dataset.list;
+  if (name === "arpop" || name === "arall") { const l = [...lists.arpop, ...lists.arall]; return playList(l, l.indexOf(t), "artist", AR.name); }
   const list = name === "recent" ? lib.liked : lists[name];
   playList(list, list.indexOf(t), name === "search" ? "search" : "likes", name === "search" ? "Поиск" : "Любимое");
 }
@@ -1025,7 +1027,9 @@ function renderPlayer() {
     for (const g of [$("#glow1"), $("#glow2")]) g.style.backgroundImage = t.cover ? `url('${t.cover}')` : "";
     const ti = $("#plTitles"); ti.classList.remove("swap"); void ti.offsetWidth; ti.classList.add("swap");
     $("#plTitle").textContent = t.title;
-    $("#plArtist").textContent = t.album ? `${t.artist} · ${t.album}` : t.artist;
+    // Yandex artists are links to their page
+    const who = t.src === "ya" && t.artists?.length ? t.artists.map(a => `<button class="ar-link" data-artist="${esc(a.id)}">${esc(a.name)}</button>`).join(", ") : esc(t.artist);
+    $("#plArtist").innerHTML = t.album ? `${who} · ${esc(t.album)}` : who;
     tintFrom(t);
     viz.bpm = 84 + (hash(t.key) % 48);
     if (lyricsOpen) loadLyrics();
@@ -1194,6 +1198,43 @@ function lift([r, g, b]) {
 const ana = { key: null, low: null, mid: null, high: null, hit: null };
 globalThis.humViz = () => ({ track: ana.key, frames: ana.low?.length || 0, viz: { ...viz } });
 
+// the number crunching runs in a Web Worker, so the interface never stalls while a track is analysed
+function bandsJob(c0, c1, sr) {
+  const hop = Math.round(sr / 50), n = Math.floor(c0.length / hop);
+  const low = new Float32Array(n), mid = new Float32Array(n), high = new Float32Array(n), hit = new Float32Array(n);
+  const k = f => Math.exp(-2 * Math.PI * f / sr);
+  const aL = k(140), aM1 = k(350), aM2 = k(2500), aH = k(5000);
+  let l = 0, m1 = 0, m2 = 0, h = 0;
+  for (let i = 0, s = 0; i < n; i++) {
+    let el = 0, em = 0, eh = 0;
+    for (let j = 0; j < hop; j++, s++) {
+      const x = c1 ? (c0[s] + c1[s]) * 0.5 : c0[s];
+      l = l * aL + x * (1 - aL); m1 = m1 * aM1 + x * (1 - aM1); m2 = m2 * aM2 + x * (1 - aM2); h = h * aH + x * (1 - aH);
+      el += l * l; em += (m2 - m1) * (m2 - m1); eh += (x - h) * (x - h);
+    }
+    low[i] = Math.sqrt(el / hop); mid[i] = Math.sqrt(em / hop); high[i] = Math.sqrt(eh / hop);
+  }
+  for (let i = 1; i < n; i++) hit[i] = Math.max(0, low[i] - low[i - 1]) * 2 + Math.max(0, mid[i] - mid[i - 1]);
+  // stretch each curve between its quiet (4th) and loud (97th) percentile, so every track fills the range
+  const norm = a => { const s = Float32Array.from(a).sort(), lo = s[Math.floor(s.length * 0.04)], hi = s[Math.floor(s.length * 0.97)] || 1, span = Math.max(1e-6, hi - lo); for (let i = 0; i < a.length; i++) a[i] = Math.min(1.3, Math.max(0, (a[i] - lo) / span)); };
+  // mids and highs barely change in level; what the eye wants is their attacks, so mix those in
+  const punch = a => { const tr = new Float32Array(a.length); let avg = a[0] || 0; for (let i = 0; i < a.length; i++) { tr[i] = Math.max(0, a[i] - avg); avg += (a[i] - avg) * 0.08; } norm(tr); for (let i = 0; i < a.length; i++) a[i] = a[i] * 0.7 + tr[i] * 0.55; };
+  [low, mid, high, hit].forEach(norm);
+  punch(mid); punch(high);
+  return { low, mid, high, hit };
+}
+let anaWorker = null;
+function crunch(c0, c1, sr) {
+  try {
+    anaWorker ??= new Worker(URL.createObjectURL(new Blob([`onmessage = e => { const r = (${bandsJob})(e.data.c0, e.data.c1, e.data.sr); postMessage(r, [r.low.buffer, r.mid.buffer, r.high.buffer, r.hit.buffer]); };`], { type: "text/javascript" })));
+  } catch { return Promise.resolve(bandsJob(c0, c1, sr)); }
+  return new Promise(ok => {
+    anaWorker.onmessage = e => ok(e.data);
+    const a = c0.slice(), b = c1 ? c1.slice() : null;
+    anaWorker.postMessage({ c0: a, c1: b, sr }, b ? [a.buffer, b.buffer] : [a.buffer]);
+  });
+}
+
 async function analyze(t) {
   if (!t || t.src !== "ya" || !t._direct || S.viz === false || ana.key === t.key) return;
   ana.key = t.key; ana.low = null;
@@ -1206,27 +1247,8 @@ async function analyze(t) {
     const ab = await new Promise((ok, no) => { const p = new AC(1, 16000, 16000).decodeAudioData(data, ok, no); p?.catch?.(no); });
     if (ana.key !== t.key) return;
     const sr = ab.sampleRate, c0 = ab.getChannelData(0), c1 = ab.numberOfChannels > 1 ? ab.getChannelData(1) : null;
-    const hop = Math.round(sr / 50), n = Math.floor(c0.length / hop);
-    const low = new Float32Array(n), mid = new Float32Array(n), high = new Float32Array(n), hit = new Float32Array(n);
-    const k = f => Math.exp(-2 * Math.PI * f / sr);
-    const aL = k(140), aM1 = k(350), aM2 = k(2500), aH = k(5000);
-    let l = 0, m1 = 0, m2 = 0, h = 0;
-    for (let i = 0, s = 0; i < n; i++) {
-      let el = 0, em = 0, eh = 0;
-      for (let j = 0; j < hop; j++, s++) {
-        const x = c1 ? (c0[s] + c1[s]) * 0.5 : c0[s];
-        l = l * aL + x * (1 - aL); m1 = m1 * aM1 + x * (1 - aM1); m2 = m2 * aM2 + x * (1 - aM2); h = h * aH + x * (1 - aH);
-        el += l * l; em += (m2 - m1) * (m2 - m1); eh += (x - h) * (x - h);
-      }
-      low[i] = Math.sqrt(el / hop); mid[i] = Math.sqrt(em / hop); high[i] = Math.sqrt(eh / hop);
-    }
-    for (let i = 1; i < n; i++) hit[i] = Math.max(0, low[i] - low[i - 1]) * 2 + Math.max(0, mid[i] - mid[i - 1]);
-    // stretch each curve between its quiet (4th) and loud (97th) percentile, so every track fills the range
-    const norm = a => { const s = Float32Array.from(a).sort(), lo = s[Math.floor(s.length * 0.04)], hi = s[Math.floor(s.length * 0.97)] || 1, span = Math.max(1e-6, hi - lo); for (let i = 0; i < a.length; i++) a[i] = Math.min(1.3, Math.max(0, (a[i] - lo) / span)); };
-    // mids and highs barely change in level; what the eye wants is their attacks, so mix those in
-    const punch = a => { const tr = new Float32Array(a.length); let avg = a[0] || 0; for (let i = 0; i < a.length; i++) { tr[i] = Math.max(0, a[i] - avg); avg += (a[i] - avg) * 0.08; } norm(tr); for (let i = 0; i < a.length; i++) a[i] = a[i] * 0.7 + tr[i] * 0.55; };
-    [low, mid, high, hit].forEach(norm);
-    punch(mid); punch(high);
+    const { low, mid, high, hit } = await crunch(c0, c1, sr);
+    if (ana.key !== t.key) return;
     Object.assign(ana, { low, mid, high, hit });
   } catch { if (ana.key === t.key) ana.key = null; }
 }
@@ -1339,11 +1361,11 @@ function drawPlayer(t, dt) {
       }
     x.lineWidth = width * d; x.lineCap = "round";
     x.strokeStyle = `rgba(${r},${g},${b},${alpha})`;
-    x.shadowColor = `rgba(${r},${g},${b},0.9)`; x.shadowBlur = glow * d;
     x.stroke();
-    x.shadowBlur = 0;
+    // fake glow: the same bars again, wide and faint (canvas shadows are slow on iPhone)
+    if (glow) { x.lineWidth = (width + glow) * d; x.strokeStyle = `rgba(${r},${g},${b},0.16)`; x.stroke(); }
   };
-  bars(1, 3.2, 0.9, 10 + lo * 18);
+  bars(1, 3.2, 0.9, 5 + lo * 7);
   bars(0.55, 1.4, 0.95, 0);
 
   // two thin waves riding just outside the bars
@@ -1496,12 +1518,83 @@ $("#accountsBody").addEventListener("click", e => {
   }
 });
 
+// ================================================================== artist page (Yandex)
+
+const AR = { id: null, name: "", req: 0 };
+const nf = n => n >= 1e6 ? (n / 1e6).toFixed(1).replace(".0", "") + " млн" : n >= 1e3 ? Math.round(n / 1e3) + " тыс" : String(n);
+
+async function openArtist(id, name) {
+  const page = $("#artist");
+  page.hidden = false;
+  requestAnimationFrame(() => requestAnimationFrame(() => page.classList.add("open")));
+  AR.id = id; AR.name = name;
+  const req = ++AR.req;
+  $("#arName").textContent = name;
+  $("#arSub").textContent = "";
+  const bg = $("#arBg"); bg.style.backgroundImage = ""; bg.style.transform = "";
+  $("#arPopular").innerHTML = `<div class="empty">Загружаю…</div>`;
+  $("#arAll").innerHTML = ""; $("#arAllH").hidden = true;
+  $("#arScroll").scrollTop = 0;
+  lists.arpop = []; lists.arall = [];
+  try {
+    const r = await ya(`artists/${id}/brief-info`);
+    if (req !== AR.req) return;
+    const a = r?.artist || {};
+    const img = a.cover?.uri || a.ogImage;
+    if (img) { bg.style.animation = "none"; bg.style.backgroundImage = `url('https://${img.replace("%%", "1000x1000")}')`; void bg.offsetWidth; bg.style.animation = ""; }
+    const bits = [];
+    if (a.genres?.length) bits.push(a.genres.slice(0, 2).map(g => YA_GENRES[g] || g).join(", "));
+    if (r.stats?.lastMonthListeners) bits.push(nf(r.stats.lastMonthListeners) + " слушателей за месяц");
+    else if (a.counts?.tracks) bits.push(a.counts.tracks + " " + plural(a.counts.tracks));
+    $("#arSub").textContent = bits.join(" · ");
+    lists.arpop = (r.popularTracks || []).map(yaTrack).filter(Boolean);
+    $("#arPopular").innerHTML = lists.arpop.length ? lists.arpop.map((t, i) => rowHtml(t, "arpop", i)).join("") : `<div class="empty">Треков нет</div>`;
+    const all = await ya(`artists/${id}/tracks?page=0&page-size=100`);
+    if (req !== AR.req) return;
+    const seen = new Set(lists.arpop.map(t => t.key));
+    lists.arall = (all?.tracks || []).map(yaTrack).filter(t => t && !seen.has(t.key));
+    $("#arAllH").hidden = !lists.arall.length;
+    $("#arAll").innerHTML = lists.arall.map(t => rowHtml(t, "arall")).join("");
+  } catch (e) { if (req === AR.req) $("#arPopular").innerHTML = `<div class="empty">Не загрузилось: ${esc(e.message)}</div>`; }
+}
+function closeArtist() {
+  const page = $("#artist");
+  page.classList.remove("open");
+  setTimeout(() => { if (!page.classList.contains("open")) page.hidden = true; }, 520);
+}
+$("#plArtist").addEventListener("click", e => { const b = e.target.closest("[data-artist]"); if (b) openArtist(b.dataset.artist, b.textContent); });
+$("#arBack").addEventListener("click", closeArtist);
+$("#arPopular").addEventListener("click", onRowsClick);
+$("#arAll").addEventListener("click", onRowsClick);
+$("#arPlay").addEventListener("click", () => { unlock(); const l = [...lists.arpop, ...lists.arall]; if (l.length) playList(l, 0, "artist", AR.name); });
+$("#arWave").addEventListener("click", () => { unlock(); startYaWave(["artist:" + AR.id], "mix", "artist:" + AR.id, "Эфир · " + AR.name); });
+// the photo stretches when pulled down and drifts up slower than the list
+$("#arScroll").addEventListener("scroll", e => {
+  const y = e.target.scrollTop;
+  $("#arBg").style.transform = y < 0 ? `scale(${(1 - y / 400).toFixed(3)})` : `translateY(${(y * 0.4).toFixed(1)}px)`;
+}, { passive: true });
+// swipe right to go back, like a native page
+(() => {
+  let x0 = null, y0 = 0;
+  const page = $("#artist");
+  page.addEventListener("touchstart", e => { x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; }, { passive: true });
+  page.addEventListener("touchend", e => { if (x0 != null && e.changedTouches[0].clientX - x0 > 90 && Math.abs(e.changedTouches[0].clientY - y0) < 60) closeArtist(); x0 = null; }, { passive: true });
+})();
+
+// ================================================================== native feel
+// no pinch / double-tap zoom, no text selection or long-press menus outside input fields
+document.addEventListener("gesturestart", e => e.preventDefault(), { passive: false });
+document.addEventListener("dblclick", e => e.preventDefault(), { passive: false });
+document.addEventListener("touchmove", e => { if (e.touches.length > 1) e.preventDefault(); }, { passive: false });
+document.addEventListener("contextmenu", e => { if (!e.target.closest("input, textarea")) e.preventDefault(); });
+
 // ================================================================== start
 
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").then(r => r.update()).catch(() => {});
 renderAll();
 showTab(S.tab || "wave");
 requestAnimationFrame(placeBlob);
+requestAnimationFrame(() => { const sp = $("#splash"); if (sp) { sp.classList.add("gone"); setTimeout(() => sp.remove(), 600); } });
 takePairCode().then(connect);
 // home-screen apps resume from memory: pick up a new pairing link or a check that failed offline
 document.addEventListener("visibilitychange", () => {

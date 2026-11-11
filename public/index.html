@@ -12,9 +12,22 @@
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
 <link rel="icon" href="/icons/icon-192.png">
-<link rel="stylesheet" href="/app.css?v=7">
+<link rel="apple-touch-startup-image" media="(device-width: 440px) and (device-height: 956px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="/splash/1320x2868.png">
+<link rel="apple-touch-startup-image" media="(device-width: 430px) and (device-height: 932px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="/splash/1290x2796.png">
+<link rel="apple-touch-startup-image" media="(device-width: 428px) and (device-height: 926px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="/splash/1284x2778.png">
+<link rel="apple-touch-startup-image" media="(device-width: 420px) and (device-height: 912px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="/splash/1260x2736.png">
+<link rel="apple-touch-startup-image" media="(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="/splash/1242x2688.png">
+<link rel="apple-touch-startup-image" media="(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)" href="/splash/828x1792.png">
+<link rel="apple-touch-startup-image" media="(device-width: 402px) and (device-height: 874px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="/splash/1206x2622.png">
+<link rel="apple-touch-startup-image" media="(device-width: 393px) and (device-height: 852px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="/splash/1179x2556.png">
+<link rel="apple-touch-startup-image" media="(device-width: 390px) and (device-height: 844px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="/splash/1170x2532.png">
+<link rel="apple-touch-startup-image" media="(device-width: 375px) and (device-height: 812px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="/splash/1125x2436.png">
+<link rel="apple-touch-startup-image" media="(device-width: 375px) and (device-height: 667px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)" href="/splash/750x1334.png">
+<link rel="stylesheet" href="/app.css?v=8">
+<style>#splash{position:fixed;inset:0;z-index:100;background:#000;display:grid;place-items:center}#splash svg{width:84px;height:84px;color:#f2f2f2;animation:sp 1.6s ease-in-out infinite}@keyframes sp{50%{transform:scale(.92);opacity:.7}}</style>
 </head>
 <body>
+<div id="splash" aria-hidden="true"><svg viewBox="0 0 48 48"><circle cx="24" cy="24" r="18" fill="none" stroke="currentColor" stroke-width="3.8"/><path d="M10 24c2.3-5 4.7-5 7 0s4.7 5 7 0 4.7-5 7 0 4.7 5 7 0" fill="none" stroke="currentColor" stroke-width="3.8" stroke-linecap="round"/></svg></div>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
   <defs>
     <symbol id="hum" viewBox="0 0 48 48"><circle cx="24" cy="24" r="18" fill="none" stroke="currentColor" stroke-width="3.8"/><path d="M10 24c2.3-5 4.7-5 7 0s4.7 5 7 0 4.7-5 7 0 4.7 5 7 0" fill="none" stroke="currentColor" stroke-width="3.8" stroke-linecap="round"/></symbol>
@@ -108,6 +121,28 @@
   </div>
 </section>
 
+<!-- artist page (Yandex) -->
+<section id="artist" class="artist-page" hidden>
+  <div class="ar-scroll" id="arScroll">
+    <div class="ar-hero">
+      <div class="ar-bg" id="arBg"></div>
+      <div class="ar-name" id="arName"></div>
+      <div class="ar-sub" id="arSub"></div>
+      <div class="ar-actions">
+        <button class="btn" id="arPlay"><svg><use href="#i-play"/></svg>Слушать</button>
+        <button class="btn sec" id="arWave"><svg><use href="#hum"/></svg>Эфир по артисту</button>
+      </div>
+    </div>
+    <div class="ar-body">
+      <div class="h">Популярные треки</div>
+      <div class="rows" id="arPopular"></div>
+      <div class="h" id="arAllH" hidden>Все треки</div>
+      <div class="rows" id="arAll"></div>
+    </div>
+  </div>
+  <button class="ib ar-back" id="arBack" aria-label="Назад"><svg><use href="#i-down"/></svg></button>
+</section>
+
 <!-- bottom sheets: wave settings, accounts -->
 <div id="scrim" class="scrim" hidden></div>
 <section id="tune" class="bsheet" hidden>
@@ -123,6 +158,6 @@
 
 <div id="toast" class="toast"></div>
 <audio id="audio" preload="auto" playsinline></audio>
-<script type="module" src="/app.js?v=7"></script>
+<script type="module" src="/app.js?v=8"></script>
 </body>
 </html>

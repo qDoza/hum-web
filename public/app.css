@@ -8,8 +8,9 @@
   --out: cubic-bezier(.16, 1, .3, 1);
   color-scheme: dark;
 }
-* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); overscroll-behavior: none; }
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; -webkit-touch-callout: none; }
+img, svg, canvas { -webkit-user-drag: none; user-select: none; }
+html, body { margin: 0; height: 100%; touch-action: manipulation; -webkit-text-size-adjust: 100%; background: var(--bg); color: var(--text); overscroll-behavior: none; }
 body { font: 14px/1.35 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif; -webkit-font-smoothing: antialiased; -webkit-user-select: none; user-select: none; }
 input { -webkit-user-select: text; user-select: text; }
 button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; touch-action: manipulation; }
@@ -165,11 +166,12 @@ svg { width: 20px; height: 20px; display: block; }
 .player.open { transform: none; }
 .player.drag { transition: none; }
 .pl-bg { position: absolute; inset: 0; pointer-events: none; }
-.glow { position: absolute; left: 50%; top: 32%; width: 150vmax; height: 150vmax; margin: -75vmax 0 0 -75vmax; background: center/cover no-repeat; filter: blur(70px) saturate(1.7); opacity: .55; will-change: transform, opacity; transition: background-image .8s; }
+/* the light is a small blurred copy of the cover scaled up ~9x: same look as a huge blur, a fraction of the GPU work */
+.glow { position: absolute; left: 50%; top: 32%; width: 16vmax; height: 16vmax; margin: -8vmax 0 0 -8vmax; background: center/cover no-repeat; filter: blur(8px) saturate(1.7); opacity: .55; will-change: transform, opacity; transform: scale(9.4); }
 .glow.g1 { animation: drift1 26s linear infinite; }
-.glow.g2 { width: 110vmax; height: 110vmax; margin: -55vmax 0 0 -55vmax; top: 70%; opacity: .35; animation: drift2 34s linear infinite; mix-blend-mode: screen; }
-@keyframes drift1 { from { transform: rotate(0) scale(1); } 50% { transform: rotate(180deg) scale(1.15); } to { transform: rotate(360deg) scale(1); } }
-@keyframes drift2 { from { transform: rotate(360deg) translateX(8%); } to { transform: rotate(0) translateX(8%); } }
+.glow.g2 { width: 12vmax; height: 12vmax; margin: -6vmax 0 0 -6vmax; top: 70%; opacity: .35; animation: drift2 34s linear infinite; mix-blend-mode: screen; }
+@keyframes drift1 { from { transform: rotate(0) scale(9.4); } 50% { transform: rotate(180deg) scale(10.8); } to { transform: rotate(360deg) scale(9.4); } }
+@keyframes drift2 { from { transform: rotate(360deg) scale(9.2) translateX(8%); } to { transform: rotate(0) scale(9.2) translateX(8%); } }
 /* smoked tempered glass: dark tint, faint sheen, fine grain */
 .smoke { position: absolute; inset: 0; background:
   linear-gradient(180deg, rgba(255,255,255,.05), transparent 22%, transparent 70%, rgba(0,0,0,.45)),
@@ -267,3 +269,26 @@ button.pill.on { background: #fff; color: #000; }
   .glow { animation: none !important; }
   *, *::before { animation-duration: .01s !important; }
 }
+
+/* ---------- artist page ---------- */
+.artist-page { position: fixed; inset: 0; z-index: 25; background: #000; transform: translateX(100%); transition: transform .5s var(--out); will-change: transform; }
+.artist-page.open { transform: none; }
+.ar-scroll { position: absolute; inset: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; padding-bottom: calc(var(--safe-b) + 40px); }
+.ar-hero { position: relative; height: min(108vw, 470px); display: flex; flex-direction: column; justify-content: flex-end; padding: 0 20px 18px; overflow: hidden; }
+.ar-bg { position: absolute; inset: 0; background: #111 center 20%/cover no-repeat; transform-origin: 50% 0; will-change: transform; animation: arIn .9s var(--out); }
+@keyframes arIn { from { opacity: 0; transform: scale(1.08); } }
+.ar-bg::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, rgba(0,0,0,.35), transparent 30%, transparent 45%, rgba(0,0,0,.75) 80%, #000); }
+.ar-name { position: relative; font-size: 38px; font-weight: 800; letter-spacing: -.02em; line-height: 1.05; text-wrap: balance; }
+.ar-sub { position: relative; color: rgba(255,255,255,.72); font-size: 13px; margin-top: 6px; min-height: 17px; }
+.ar-actions { position: relative; display: flex; gap: 8px; margin-top: 14px; }
+.ar-actions .btn { margin: 0; display: inline-flex; align-items: center; gap: 7px; }
+.ar-actions .btn svg { width: 16px; height: 16px; }
+.ar-body { padding: 0 18px; }
+.ar-back { position: absolute; top: calc(var(--safe-t) + 10px); left: 14px; z-index: 2; background: rgba(0,0,0,.45); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); }
+.ar-back svg { transform: rotate(90deg); }
+.ar-link { color: inherit; font: inherit; text-decoration: underline; text-decoration-color: rgba(255,255,255,.3); text-underline-offset: 3px; }
+.ar-link:active { opacity: .6; }
+
+/* ---------- splash (until the app has drawn itself) ---------- */
+#splash { position: fixed; inset: 0; z-index: 100; background: #000; display: grid; place-items: center; transition: opacity .45s ease, visibility 0s .45s; }
+#splash.gone { opacity: 0; visibility: hidden; }

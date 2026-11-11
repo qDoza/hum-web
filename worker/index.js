@@ -32,6 +32,7 @@ export default {
       if (p === "/api/sc-client-id") return json({ clientId: await clientId(url.searchParams.get("fresh") === "1") });
       if (p.startsWith("/api/sc/")) return await proxySoundCloud(request, p.slice(8) + url.search);
       if (p === "/api/pipe") return await pipe(request, url.searchParams.get("u"));
+      if (p === "/api/img") return await img(url.searchParams.get("u"));
       if (p === "/api/pair" && request.method === "POST") return await pairPut(request, env);
       if (p.startsWith("/api/pair/")) return await pairTake(env, p.slice(10));
       if (p.startsWith("/api/")) return json({ error: "not found" }, 404);
@@ -162,6 +163,19 @@ async function pairTake(env, id) {
   if (!blob) return json({ error: "код истёк или уже использован" }, 404);
   await env.PAIR.delete(id);
   return json({ blob });
+}
+
+// ------------------------------------------------------------------ cover images (same origin, so the app can read their colours)
+
+const IMG_HOSTS = [/^avatars\.yandex\.net$/, /\.sndcdn\.com$/];
+
+async function img(u) {
+  if (!u) return json({ error: "u required" }, 400);
+  const target = new URL(u);
+  if (target.protocol !== "https:" || !IMG_HOSTS.some(rx => rx.test(target.hostname))) return json({ error: "host not allowed" }, 403);
+  const r = await fetch(target, { cf: { cacheTtl: 86400, cacheEverything: true } });
+  const out = new Headers({ "content-type": r.headers.get("content-type") || "image/jpeg", "cache-control": "public, max-age=604800" });
+  return new Response(r.body, { status: r.status, headers: out });
 }
 
 // ------------------------------------------------------------------ audio pipe (fallback)

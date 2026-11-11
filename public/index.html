@@ -12,7 +12,7 @@
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
 <link rel="icon" href="/icons/icon-192.png">
-<link rel="stylesheet" href="/app.css?v=4">
+<link rel="stylesheet" href="/app.css?v=5">
 </head>
 <body>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
@@ -27,8 +27,12 @@
     <symbol id="i-dislike" viewBox="0 0 24 24"><circle cx="12" cy="12" r="7.5" fill="none" stroke="currentColor" stroke-width="1.9"/><path d="M6.8 17.2 17.2 6.8" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></symbol>
     <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6" fill="none" stroke="currentColor" stroke-width="1.9"/><path d="m20 20-4.5-4.5" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></symbol>
     <symbol id="i-shuffle" viewBox="0 0 24 24"><path d="M4 7h3c5 0 5 10 10 10h3M4 17h3c2 0 3-1.5 4-3M14 9.5c1-1.5 2-2.5 3-2.5h3M18 4l3 3-3 3M18 14l3 3-3 3" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-repeat" viewBox="0 0 24 24"><path d="M5 11V9.5A2.5 2.5 0 0 1 7.5 7H19l-3-3M19 13v1.5a2.5 2.5 0 0 1-2.5 2.5H5l3 3" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></symbol>
     <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8.5" r="3.5" fill="none" stroke="currentColor" stroke-width="1.9"/><path d="M5 19.5c1.2-3.2 3.9-4.8 7-4.8s5.8 1.6 7 4.8" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></symbol>
     <symbol id="i-down" viewBox="0 0 24 24"><path d="m6 9.5 6 6 6-6" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-tune" viewBox="0 0 24 24"><path d="M4 7.5h9M17 7.5h3M4 16.5h3M11 16.5h9" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/><circle cx="15" cy="7.5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.9"/><circle cx="9" cy="16.5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.9"/></symbol>
+    <symbol id="i-lyrics" viewBox="0 0 24 24"><path d="M5 6.5h14M5 11.5h14M5 16.5h8" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/><path d="M17 15v4.5" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/><circle cx="15.6" cy="19.4" r="1.6" fill="currentColor"/></symbol>
+    <symbol id="i-chev" viewBox="0 0 24 24"><path d="m9.5 6 6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
   </defs>
 </svg>
 
@@ -62,49 +66,63 @@
   </nav>
 </div>
 
-<!-- full-screen player: big cover, controls, lyrics -->
-<section id="sheet" class="sheet" hidden>
-  <div class="sheet-top">
-    <button class="ib ghost" id="sheetClose" aria-label="Свернуть"><svg><use href="#i-down"/></svg></button>
-    <div class="sheet-ctx" id="sheetCtx"></div>
-    <button class="ib ghost" id="lyricsToggle" aria-label="Текст">Aa</button>
+<!-- full-screen player: smoked glass over light from the cover -->
+<section id="player" class="player" hidden>
+  <div class="pl-bg" aria-hidden="true">
+    <div class="glow g1" id="glow1"></div>
+    <div class="glow g2" id="glow2"></div>
+    <div class="smoke"></div>
   </div>
-  <div class="sheet-body">
-    <div class="sheet-cover cover" id="sheetCover"></div>
-    <div class="lyrics" id="lyrics" hidden><div class="lyrics-in" id="lyricsIn"></div></div>
-  </div>
-  <div class="sheet-info">
-    <div class="sheet-titles">
-      <div class="t" id="sheetTitle">—</div>
-      <div class="s"><span class="tag" id="sheetTag"></span><span id="sheetArtist"></span></div>
+  <div class="pl-in" id="plIn">
+    <div class="pl-top">
+      <button class="ib ghost" id="plClose" aria-label="Свернуть"><svg><use href="#i-down"/></svg></button>
+      <div class="pl-ctx" id="plCtx"></div>
+      <button class="ib ghost" id="lyricsBtn" aria-label="Текст песни"><svg><use href="#i-lyrics"/></svg></button>
     </div>
-    <button class="cb" id="sheetLike" aria-label="Нравится"><svg><use href="#i-heart"/></svg></button>
-  </div>
-  <div class="seek">
-    <input type="range" id="seek" min="0" max="1000" value="0" aria-label="Перемотка">
-    <div class="times"><span id="tPos">0:00</span><span id="tDur">0:00</span></div>
-  </div>
-  <div class="controls">
-    <button class="cb" id="sheetDislike" aria-label="Не нравится"><svg><use href="#i-dislike"/></svg></button>
-    <button class="cb big" id="sheetPrev" aria-label="Назад"><svg><use href="#i-prev"/></svg></button>
-    <button class="play" id="sheetPlay" aria-label="Играть"><svg><use href="#i-play"/></svg></button>
-    <button class="cb big" id="sheetNext" aria-label="Дальше"><svg><use href="#i-next"/></svg></button>
-    <button class="cb" id="sheetShuffleHint" aria-hidden="true" tabindex="-1" style="visibility:hidden"><svg><use href="#i-shuffle"/></svg></button>
+    <div class="pl-stage" id="plStage">
+      <canvas id="plRings"></canvas>
+      <div class="pl-cover" id="plCover"><div class="cv a" id="cvA"></div><div class="cv b" id="cvB"></div></div>
+      <div class="lyrics" id="lyrics" hidden><div class="lyrics-in" id="lyricsIn"></div></div>
+    </div>
+    <div class="pl-meta">
+      <div class="pl-titles" id="plTitles"><div class="t" id="plTitle">—</div><div class="s" id="plArtist"></div></div>
+      <button class="cb" id="plLike" aria-label="Нравится"><svg><use href="#i-heart"/></svg></button>
+    </div>
+    <div class="pl-tags" id="plTags"></div>
+    <div class="seek">
+      <input type="range" id="seek" min="0" max="1000" value="0" aria-label="Перемотка">
+      <div class="times"><span id="tPos">0:00</span><span id="tDur">0:00</span></div>
+    </div>
+    <div class="controls">
+      <button class="cb" id="plLeft" aria-label="Не нравится"><svg><use href="#i-dislike"/></svg></button>
+      <button class="cb big" id="plPrev" aria-label="Назад"><svg><use href="#i-prev"/></svg></button>
+      <button class="play" id="plPlay" aria-label="Играть"><svg><use href="#i-play"/></svg></button>
+      <button class="cb big" id="plNext" aria-label="Дальше"><svg><use href="#i-next"/></svg></button>
+      <button class="cb" id="plRepeat" aria-label="Повтор трека"><svg><use href="#i-repeat"/></svg></button>
+    </div>
+    <button class="vibe" id="plVibe">
+      <span class="vibe-ic"><svg><use href="#hum"/></svg></span>
+      <span class="vibe-t"><b>Эфир по вайбу</b><span id="vibeSub">Похожее по звучанию</span></span>
+      <span class="vibe-go">Запустить</span>
+    </button>
   </div>
 </section>
 
-<!-- accounts -->
-<section id="accounts" class="sheet sheet-sm" hidden>
-  <div class="sheet-top">
-    <button class="ib ghost" id="accountsClose" aria-label="Закрыть"><svg><use href="#i-down"/></svg></button>
-    <div class="sheet-ctx">Аккаунты</div>
-    <span style="width:34px"></span>
-  </div>
-  <div id="accountsBody" class="accounts-body"></div>
+<!-- bottom sheets: wave settings, accounts -->
+<div id="scrim" class="scrim" hidden></div>
+<section id="tune" class="bsheet" hidden>
+  <div class="grab"></div>
+  <div class="bs-head"><span>Настройки эфира</span><button class="ib ghost" data-close aria-label="Закрыть"><svg><use href="#i-down"/></svg></button></div>
+  <div class="bs-body" id="tuneBody"></div>
+</section>
+<section id="accounts" class="bsheet" hidden>
+  <div class="grab"></div>
+  <div class="bs-head"><span>Аккаунты</span><button class="ib ghost" data-close aria-label="Закрыть"><svg><use href="#i-down"/></svg></button></div>
+  <div class="bs-body" id="accountsBody"></div>
 </section>
 
 <div id="toast" class="toast"></div>
 <audio id="audio" preload="auto" playsinline></audio>
-<script type="module" src="/app.js?v=4"></script>
+<script type="module" src="/app.js?v=5"></script>
 </body>
 </html>

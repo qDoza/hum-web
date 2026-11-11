@@ -1,0 +1,15 @@
+{
+  "name": "hum-web",
+  "private": true,
+  "description": "HUM for iPhone: a PWA plus the Cloudflare Worker that relays Yandex Music / SoundCloud API calls",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "^4.159.0"
+  },
+  "allowScripts": {
+    "workerd@1.20261110.1": true
+  }
+}

@@ -6,7 +6,7 @@ const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": 
 const fmt = ms => { const s = Math.max(0, Math.floor((ms || 0) / 1000)); return s >= 3600 ? `${Math.floor(s / 3600)}:${String(Math.floor(s / 60) % 60).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}` : `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; };
 const shuffle = a => a.map(v => [Math.random(), v]).sort((x, y) => x[0] - y[0]).map(x => x[1]);
 const plural = n => n % 10 === 1 && n % 100 !== 11 ? "трек" : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 12 || n % 100 > 14) ? "трека" : "треков";
-const VERSION = "9";
+const VERSION = "10";
 
 // ================================================================== storage
 // Tokens are kept twice (localStorage and a first-party cookie), so a home-screen app that loses one
@@ -407,6 +407,41 @@ function unlock() {
 document.addEventListener("touchend", unlock, { once: true, passive: true });
 document.addEventListener("click", unlock, { once: true });
 
+// ---------- gapless hand-over in the background
+// iPhone lets a home-screen app start the next track while the screen is off only if it happens right
+// away, in the same moment the old one ends: waiting for the network first gets the play() refused.
+// So the next track's stream link is fetched ahead of time and swapped in without any await.
+
+const pre = { key: null, url: null, at: 0, busy: false };
+// Yandex links are signed with a timestamp and go stale after a while; SoundCloud HLS links live longer
+const preFresh = t => pre.key === t.key && pre.url && Date.now() - pre.at < (t.src === "ya" ? 45000 : 300000);
+const nextIndex = () => isWave() ? P.i + 1 : P.queue.length ? (P.i + 1) % P.queue.length : -1;
+
+async function prefetchNext() {
+  const t = P.queue[nextIndex()];
+  if (!t || pre.busy || preFresh(t)) return;
+  pre.busy = true;
+  try { const url = await streamUrl(t); pre.key = t.key; pre.url = url; pre.at = Date.now(); }
+  catch { pre.key = null; }
+  pre.busy = false;
+}
+
+let handedOver = -1;
+// near the end of a track: make sure the next link is ready, and switch a hair before the end so the
+// audio session never goes idle (an idle session is what blocks the next play() with the screen off)
+function watchEnd() {
+  const c = cur();
+  if (!c || !audio.duration || !isFinite(audio.duration) || audio.loop || P.repeat) return;
+  const left = audio.duration - audio.currentTime;
+  if (left < 40) prefetchNext();
+  const n = P.queue[nextIndex()];
+  if (left < 0.35 && !audio.paused && n && preFresh(n) && handedOver !== P.gen) {
+    handedOver = P.gen;
+    if (isWave()) fb("trackFinished", c, (c.dur || 0) / 1000);
+    go(nextIndex());
+  }
+}
+
 async function go(i) {
   if (!isWave() && P.queue.length) i = ((i % P.queue.length) + P.queue.length) % P.queue.length;
   if (i >= P.queue.length) { if (isWave()) await fetchMore(true); return; }
@@ -414,15 +449,26 @@ async function go(i) {
   P.i = i;
   const t = P.queue[i];
   const g = ++P.gen;
-  audio.pause();
-  setBusy(true);
   markCurrent();
   updateMediaSession();
   if (isWave() && i >= P.queue.length - 2) fetchMore(false);
+  if (preFresh(t)) {
+    // the link is already here: swap and play in this very moment, no network in between
+    const url = pre.url;
+    pre.key = null;
+    t._direct = url; t._retried = false;
+    audio.src = url;
+    audio.play().catch(e => { if (g === P.gen && e?.name === "NotAllowedError") { setBusy(false); toast("Нажмите ▶, чтобы продолжить"); } });
+    setBusy(true);
+    if (!document.hidden) analyze(t);
+    return;
+  }
+  audio.pause();
+  setBusy(true);
   try {
     const url = await streamUrl(t);
     if (g !== P.gen) return;
-    t._direct = url;
+    t._direct = url; t._retried = false;
     audio.src = url;
     if (!document.hidden) analyze(t);
     await audio.play();
@@ -640,10 +686,22 @@ audio.addEventListener("playing", () => {
 });
 audio.addEventListener("pause", () => { renderPlayer(); updateHome(); });
 audio.addEventListener("play", () => { renderPlayer(); updateHome(); });
-audio.addEventListener("ended", () => { const t = cur(); if (t && isWave()) fb("trackFinished", t, (t.dur || 0) / 1000); next(false); });
+audio.addEventListener("ended", () => {
+  if (handedOver === P.gen) return;
+  handedOver = P.gen;
+  const t = cur(); if (t && isWave()) fb("trackFinished", t, (t.dur || 0) / 1000);
+  next(false);
+});
+audio.addEventListener("timeupdate", watchEnd);
 audio.addEventListener("error", () => {
   const t = cur();
   if (!t || !audio.src || audio.src.startsWith("blob:")) return;
+  if (!t._retried) {
+    t._retried = true;
+    const g = P.gen;
+    streamUrl(t).then(url => { if (g !== P.gen) return; t._direct = url; audio.src = url; audio.play().catch(() => {}); }).catch(() => { if (g === P.gen) failed("поток недоступен"); });
+    return;
+  }
   // a Yandex link that refuses the phone directly gets one more try through the Worker
   if (t.src === "ya" && t._direct && !audio.src.includes("/api/pipe")) { audio.src = "/api/pipe?u=" + encodeURIComponent(t._direct); audio.play().catch(() => {}); return; }
   failed("поток недоступен");

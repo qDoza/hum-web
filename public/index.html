@@ -23,7 +23,7 @@
 <link rel="apple-touch-startup-image" media="(device-width: 390px) and (device-height: 844px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="/splash/1170x2532.png">
 <link rel="apple-touch-startup-image" media="(device-width: 375px) and (device-height: 812px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="/splash/1125x2436.png">
 <link rel="apple-touch-startup-image" media="(device-width: 375px) and (device-height: 667px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)" href="/splash/750x1334.png">
-<link rel="stylesheet" href="/app.css?v=11">
+<link rel="stylesheet" href="/app.css?v=12">
 <style>#splash{position:fixed;inset:0;z-index:100;background:#000;display:grid;place-items:center}#splash svg{width:84px;height:84px;color:#f2f2f2;animation:sp 1.6s ease-in-out infinite}@keyframes sp{50%{transform:scale(.92);opacity:.7}}</style>
 </head>
 <body>
@@ -57,9 +57,9 @@
   </header>
 
   <main id="pages">
-    <section class="page" id="page-wave"></section>
-    <section class="page" id="page-likes" hidden></section>
-    <section class="page" id="page-search" hidden></section>
+    <section class="page active" id="page-wave"></section>
+    <section class="page after" id="page-likes"></section>
+    <section class="page after" id="page-search"></section>
   </main>
 
   <div id="mini" class="mini" hidden>
@@ -164,6 +164,6 @@
 
 <div id="toast" class="toast"></div>
 <audio id="audio" preload="auto" playsinline></audio>
-<script type="module" src="/app.js?v=11"></script>
+<script type="module" src="/app.js?v=12"></script>
 </body>
 </html>

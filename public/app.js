@@ -6,7 +6,7 @@ const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": 
 const fmt = ms => { const s = Math.max(0, Math.floor((ms || 0) / 1000)); return s >= 3600 ? `${Math.floor(s / 3600)}:${String(Math.floor(s / 60) % 60).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}` : `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; };
 const shuffle = a => a.map(v => [Math.random(), v]).sort((x, y) => x[0] - y[0]).map(x => x[1]);
 const plural = n => n % 10 === 1 && n % 100 !== 11 ? "трек" : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 12 || n % 100 > 14) ? "трека" : "треков";
-const VERSION = "11";
+const VERSION = "12";
 
 // ================================================================== storage
 // Tokens are kept twice (localStorage and a first-party cookie), so a home-screen app that loses one
@@ -749,7 +749,12 @@ function toast(text) {
 }
 
 // restarts a one-shot CSS animation class on an element
-function restart(el, cls) { if (!el) return; el.classList.remove(cls); void el.offsetWidth; el.classList.add(cls); }
+function restart(el, cls) {
+  if (!el) return;
+  el.classList.remove(cls);
+  cancelAnimationFrame(el["_r" + cls]);
+  el["_r" + cls] = requestAnimationFrame(() => requestAnimationFrame(() => el.classList.add(cls)));
+}
 // swaps an icon inside a button with a small morph, only when it really changes
 function setIcon(btn, name) {
   if (!btn || btn._icon === name) return;
@@ -769,19 +774,32 @@ function showTab(tab) {
     b.classList.toggle("on", on);
     if (on && changed) restart(b, "bump");
   }
-  for (const p of TABS) {
+  // every page stays rendered and only changes class: the CSS transition then simply turns around when you
+  // switch again mid-way, nothing restarts and nothing has to be laid out from scratch
+  const at = TABS.indexOf(tab);
+  TABS.forEach((p, i) => {
     const el = $("#page-" + p);
-    el.hidden = p !== tab;
-    if (p === tab && changed) { el.classList.remove("enter", "enter-l", "enter-r"); void el.offsetWidth; el.classList.add("enter", "enter-" + dir); }
-  }
-  if (tab === "likes" && likesDirty) renderLikesList(true);
+    el.hidden = false;
+    el.classList.toggle("active", i === at);
+    el.classList.toggle("before", i < at);
+    el.classList.toggle("after", i > at);
+    el.inert = i !== at;
+  });
+  // a long list that changed meanwhile is redrawn once the slide is over, not during it
+  clearTimeout(showTab.t);
+  if (tab === "likes" && likesDirty) showTab.t = setTimeout(() => { if (S.tab === "likes" && likesDirty) renderLikesList(); }, 480);
   placeBlob();
 }
+let tabGeo = null;
+addEventListener("resize", () => { tabGeo = null; });
 function placeBlob() {
   const b = document.querySelector(`.tab[data-tab="${S.tab}"]`), blob = $("#tabBlob");
   if (!b) return;
-  blob.style.left = b.offsetLeft + "px";
-  blob.style.width = b.offsetWidth + "px";
+  tabGeo ??= Object.fromEntries([...document.querySelectorAll(".tab")].map(t => [t.dataset.tab, [t.offsetLeft, t.offsetWidth]]));
+  const [left, width] = tabGeo[S.tab] || [b.offsetLeft, b.offsetWidth];
+  blob.style.transform = `translateX(${left}px)`;
+  blob.style.width = width + "px";
+  if (!width) tabGeo = null;   // measured before layout was ready: try again next time
 }
 $("#tabs").addEventListener("click", e => { const b = e.target.closest(".tab"); if (b) showTab(b.dataset.tab); });
 addEventListener("resize", placeBlob);

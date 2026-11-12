@@ -41,8 +41,12 @@ svg { width: 20px; height: 20px; display: block; }
 
 /* ---------- pages ---------- */
 #pages { flex: 1; overflow: hidden; position: relative; }
-.page { position: absolute; inset: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 0 18px 150px; }
-.page.enter { animation: pageIn .5s var(--out); }
+.page { position: absolute; inset: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 0 18px 150px;
+  opacity: 0; visibility: hidden; pointer-events: none; transform: translate3d(0, 0, 0); will-change: transform, opacity;
+  transition: opacity .3s ease, transform .5s var(--out), visibility 0s linear .5s; }
+.page.before { transform: translate3d(-34px, 0, 0); }
+.page.after { transform: translate3d(34px, 0, 0); }
+.page.active { opacity: 1; visibility: visible; pointer-events: auto; transform: none; transition: opacity .35s ease .04s, transform .5s var(--out), visibility 0s; }
 @keyframes pageIn { from { opacity: 0; transform: translateY(10px) scale(.99); } }
 .h { font-size: 17px; font-weight: 700; margin: 26px 0 12px; display: flex; justify-content: space-between; align-items: baseline; }
 .h small, .h button.more { font-size: 13px; font-weight: 500; color: var(--muted); }
@@ -161,7 +165,7 @@ svg { width: 20px; height: 20px; display: block; }
 .tab { flex: 1; height: 48px; display: flex; align-items: center; justify-content: center; gap: 8px; color: var(--dim); font-size: 13px; position: relative; z-index: 1; }
 .tab svg { width: 18px; height: 18px; }
 .tab.on { color: var(--ac); }
-.tab-blob { position: absolute; top: 6px; height: 48px; border-radius: 14px; background: var(--chip); transition: left .55s var(--spring), width .55s var(--spring); }
+.tab-blob { position: absolute; top: 6px; left: 0; height: 48px; border-radius: 14px; background: var(--chip); transition: transform .55s var(--spring), width .55s var(--spring); will-change: transform; }
 
 /* ---------- full-screen player ---------- */
 .player { position: fixed; inset: 0; bottom: auto; height: var(--app-h, 100%); z-index: 20; overflow: hidden; background: #050505; transform: translateY(100%); transition: transform .55s var(--out), border-radius .55s var(--out); will-change: transform; }
@@ -352,11 +356,10 @@ button.pill.on { background: var(--ac); color: var(--on-ac); }
 
 /* ================================================================== motion pass */
 /* pages slide in from the side of the tab you came from */
-.page.enter-r { animation: pageR .5s var(--out); }
-.page.enter-l { animation: pageL .5s var(--out); }
+
 @keyframes pageR { from { opacity: 0; transform: translateX(26px); } }
 @keyframes pageL { from { opacity: 0; transform: translateX(-26px); } }
-.page { will-change: scroll-position; }
+
 
 /* the chosen tab's icon hops */
 .tab.bump svg { animation: hop .55s var(--spring); }

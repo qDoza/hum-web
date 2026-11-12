@@ -136,8 +136,8 @@ async function proxySoundCloud(request, pathAndQuery, retried = false) {
   const t = request.headers.get("x-sc-token");
   if (t) h.Authorization = "OAuth " + t;
   const r = await fetch(target, { method: request.method, headers: h, body: await passBody(request) });
-  // a stale client_id answers 401/403: refresh it once
-  if ((r.status === 401 || r.status === 403) && !retried && !t) return proxySoundCloud(request, pathAndQuery, true);
+  // a stale client_id answers 401/403 (with or without a user token): refresh it once
+  if ((r.status === 401 || r.status === 403) && !retried) return proxySoundCloud(request, pathAndQuery, true);
   return relay(r);
 }
 

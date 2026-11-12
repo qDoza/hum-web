@@ -6,7 +6,7 @@ const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": 
 const fmt = ms => { const s = Math.max(0, Math.floor((ms || 0) / 1000)); return s >= 3600 ? `${Math.floor(s / 3600)}:${String(Math.floor(s / 60) % 60).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}` : `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; };
 const shuffle = a => a.map(v => [Math.random(), v]).sort((x, y) => x[0] - y[0]).map(x => x[1]);
 const plural = n => n % 10 === 1 && n % 100 !== 11 ? "трек" : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 12 || n % 100 > 14) ? "трека" : "треков";
-const VERSION = "10";
+const VERSION = "11";
 
 // ================================================================== storage
 // Tokens are kept twice (localStorage and a first-party cookie), so a home-screen app that loses one
@@ -748,14 +748,31 @@ function toast(text) {
   toastTimer = setTimeout(() => el.classList.remove("show"), 2800);
 }
 
+// restarts a one-shot CSS animation class on an element
+function restart(el, cls) { if (!el) return; el.classList.remove(cls); void el.offsetWidth; el.classList.add(cls); }
+// swaps an icon inside a button with a small morph, only when it really changes
+function setIcon(btn, name) {
+  if (!btn || btn._icon === name) return;
+  const first = btn._icon === undefined;
+  btn._icon = name;
+  btn.innerHTML = `<svg><use href="#i-${name}"/></svg>`;
+  if (!first) restart(btn, "morph");
+}
+
+const TABS = ["wave", "likes", "search"];
 function showTab(tab) {
   const changed = S.tab !== tab;
+  const dir = TABS.indexOf(tab) > TABS.indexOf(S.tab) ? "r" : "l";
   S.tab = tab; saveS();
-  for (const b of document.querySelectorAll(".tab")) b.classList.toggle("on", b.dataset.tab === tab);
-  for (const p of ["wave", "likes", "search"]) {
+  for (const b of document.querySelectorAll(".tab")) {
+    const on = b.dataset.tab === tab;
+    b.classList.toggle("on", on);
+    if (on && changed) restart(b, "bump");
+  }
+  for (const p of TABS) {
     const el = $("#page-" + p);
     el.hidden = p !== tab;
-    if (p === tab && changed) { el.classList.remove("enter"); void el.offsetWidth; el.classList.add("enter"); }
+    if (p === tab && changed) { el.classList.remove("enter", "enter-l", "enter-r"); void el.offsetWidth; el.classList.add("enter", "enter-" + dir); }
   }
   if (tab === "likes" && likesDirty) renderLikesList(true);
   placeBlob();
@@ -777,6 +794,7 @@ function renderAll() { renderHome(); buildLikes(); buildSearch(); renderPlayer()
 
 let openSheetEl = null;
 function openSheet(el) {
+  restart(el, "stagger");
   if (openSheetEl && openSheetEl !== el) openSheetEl.hidden = true;
   openSheetEl = el;
   $("#scrim").hidden = false; $("#scrim").classList.remove("out");
@@ -859,7 +877,7 @@ function updateHome() {
   const mine = isWave() && P.ctxSrc === src && cur();
   sub.textContent = heroSub();
   const play = $("#heroPlay");
-  play.innerHTML = `<svg><use href="#i-${mine && playing() ? "pause" : "play"}"/></svg>`;
+  setIcon(play, mine && playing() ? "pause" : "play");
   play.classList.toggle("busy", P.busy && isWave() && P.ctxSrc === src);
   document.querySelectorAll("#page-wave [data-act]").forEach(b => {
     const a = b.dataset.act, v = b.dataset.v;
@@ -876,7 +894,7 @@ function renderRecent() {
   const box = $("#recentRows");
   if (!box) return;
   lists.recent = lib.liked.slice(0, 6);
-  box.innerHTML = lib.loading && !lib.liked.length ? `<div class="empty">Загружаю лайки…</div>`
+  box.innerHTML = lib.loading && !lib.liked.length ? skeleton(4)
     : !lists.recent.length ? `<div class="empty">Лайков пока нет</div>`
     : lists.recent.map(t => rowHtml(t, "recent")).join("");
 }
@@ -888,7 +906,7 @@ $("#page-wave").addEventListener("click", e => {
   switch (b.dataset.act) {
     case "src": if (S.source !== v) { S.source = v; saveS(); renderHome(); buildSearch(); } break;
     case "tune": openTune(); break;
-    case "mywave": unlock(); if (P.ctx === "mywave" && P.ctxSrc === S.source && cur()) toggle(); else if (isWave() && P.ctxSrc === S.source && cur() && b.id === "heroPlay") toggle(); else playMyWave(S.source); break;
+    case "mywave": restart($(".hero"), "burst"); unlock(); if (P.ctx === "mywave" && P.ctxSrc === S.source && cur()) toggle(); else if (isWave() && P.ctxSrc === S.source && cur() && b.id === "heroPlay") toggle(); else playMyWave(S.source); break;
     case "mix": unlock(); playMix(v); break;
     case "activity": unlock(); playActivity(lib.activities[+v]); break;
     case "scgenre-go": unlock(); S.scGenre = SC_GENRES[+v][0]; saveS(); startScWave("mywave", "Мой эфир"); updateHome(); break;
@@ -990,7 +1008,7 @@ const lists = { likes: [], search: [], recent: [], arpop: [], arall: [] };
 function rowHtml(t, list, i = -1) {
   const liked = isLiked(t), c = cur();
   return `<div class="row ${c && c.key === t.key ? "cur" : ""}${i >= 0 && i < 14 ? " in" : ""}" ${i >= 0 && i < 14 ? `style="animation-delay:${i * 28}ms"` : ""} data-act="play" data-list="${list}" data-key="${esc(t.key)}">
-    <div class="cover row-c" ${coverStyle(t.cover)}></div>
+    <div class="cover row-c" ${coverStyle(t.cover)}>${c && c.key === t.key ? '<span class="eq"><i></i><i></i><i></i></span>' : ""}</div>
     <div class="meta"><div class="t">${esc(t.title)}</div><div class="s"><span class="tag">${t.src === "ya" ? "ЯМ" : "SC"}</span><span>${esc(t.artist)}</span></div></div>
     <div class="d">${fmt(t.dur)}</div>
     <button class="heart ${liked ? "on" : ""}" data-act="like" data-key="${esc(t.key)}" aria-label="Нравится"><svg><use href="#i-heart${liked ? "-fill" : ""}"/></svg></button></div>`;
@@ -1013,7 +1031,12 @@ function onRowsClick(e) {
 
 function markCurrent() {
   const c = cur();
-  document.querySelectorAll(".row").forEach(r => r.classList.toggle("cur", !!c && r.dataset.key === c.key));
+  document.querySelectorAll(".row.cur").forEach(r => { r.classList.remove("cur"); r.querySelector(".eq")?.remove(); });
+  if (!c) return;
+  document.querySelectorAll(`.row[data-key="${CSS.escape(c.key)}"]`).forEach(r => {
+    r.classList.add("cur");
+    r.querySelector(".cover")?.insertAdjacentHTML("beforeend", '<span class="eq"><i></i><i></i><i></i></span>');
+  });
 }
 
 // ================================================================== UI: «Любимое»
@@ -1047,9 +1070,27 @@ function renderLikesList(animate = false) {
   lists.likes = lib.liked.filter(t => (!likesFilter || t.src === likesFilter) &&
     (!likesQuery || t.title.toLowerCase().includes(likesQuery) || t.artist.toLowerCase().includes(likesQuery)));
   rows.innerHTML = !has("ya") && !has("sc") ? `<div class="empty">Подключите Яндекс или SoundCloud — лайки из обоих сервисов соберутся здесь.</div>`
-    : lib.loading && !lib.liked.length ? `<div class="empty">Загружаю лайки…</div>`
+    : lib.loading && !lib.liked.length ? skeleton(8)
     : !lists.likes.length ? `<div class="empty">${likesQuery ? "Ничего не нашлось" : "Пока пусто"}</div>`
-    : lists.likes.map((t, i) => rowHtml(t, "likes", animate ? i : -1)).join("");
+    : null;
+  // null above = there are rows to show: the first screen now, the rest in small chunks
+  if (!rows.innerHTML) chunked(rows, lists.likes, (t, i) => rowHtml(t, "likes", animate ? i : -1));
+}
+
+const skeleton = n => Array.from({ length: n }, (_, i) => `<div class="row skel" style="animation-delay:${i * 60}ms"><div class="cover row-c"></div><div class="meta"><div class="sk w1"></div><div class="sk w2"></div></div></div>`).join("");
+
+let chunkJob = 0;
+function chunked(el, list, html) {
+  const job = ++chunkJob;
+  el.innerHTML = list.slice(0, 40).map(html).join("");
+  let i = 40;
+  const step = () => {
+    if (job !== chunkJob || i >= list.length) return;
+    el.insertAdjacentHTML("beforeend", list.slice(i, i + 120).map((t, k) => html(t, -1 - k)).join(""));
+    i += 120;
+    setTimeout(step, 30);
+  };
+  setTimeout(step, 60);
 }
 
 // ================================================================== UI: «Поиск»
@@ -1096,6 +1137,7 @@ const pl = $("#player");
 let shownKey = null, coverFront = "A";
 
 function renderPlayer() {
+  document.body.classList.toggle("is-playing", playing());
   const t = cur();
   $("#mini").hidden = !t;
   if (!t) return;
@@ -1103,7 +1145,7 @@ function renderPlayer() {
   $("#miniCover").style.backgroundImage = t.cover ? `url('${t.cover}')` : "";
   $("#miniTitle").textContent = t.title;
   $("#miniSub").textContent = P.busy && !playing() ? "Загружаю…" : t.artist;
-  $("#miniPlay").innerHTML = `<svg><use href="#i-${icon}"/></svg>`;
+  setIcon($("#miniPlay"), icon);
 
   if (shownKey !== t.key) {
     shownKey = t.key;
@@ -1114,6 +1156,7 @@ function renderPlayer() {
     coverFront = coverFront === "A" ? "B" : "A";
     for (const g of [$("#glow1"), $("#glow2")]) g.style.backgroundImage = t.cover ? `url('${t.cover}')` : "";
     const ti = $("#plTitles"); ti.classList.remove("swap"); void ti.offsetWidth; ti.classList.add("swap");
+    restart($("#miniOpen"), "slide");
     $("#plTitle").textContent = t.title;
     // Yandex artists are links to their page
     const who = t.src === "ya" && t.artists?.length ? t.artists.map(a => `<button class="ar-link" data-artist="${esc(a.id)}">${esc(a.name)}</button>`).join(", ") : esc(t.artist);
@@ -1130,10 +1173,10 @@ function renderPlayer() {
   $("#lyricsBtn").classList.toggle("on", lyricsOpen);
   $("#lyricsBtn").style.opacity = t.hasLyrics ? "1" : ".35";
   $("#plCtx").textContent = P.title;
-  $("#plPlay").innerHTML = `<svg><use href="#i-${icon}"/></svg>`;
+  setIcon($("#plPlay"), icon);
   $("#plCover").classList.toggle("paused", !playing() && !P.busy);
   const liked = isLiked(t);
-  $("#plLike").innerHTML = `<svg><use href="#i-heart${liked ? "-fill" : ""}"/></svg>`;
+  setIcon($("#plLike"), liked ? "heart-fill" : "heart");
   const left = $("#plLeft");
   left.innerHTML = `<svg><use href="#i-${isWave() ? "dislike" : "shuffle"}"/></svg>`;
   left.setAttribute("aria-label", isWave() ? "Не нравится" : "Перемешать");
@@ -1196,6 +1239,7 @@ let playerOpen = false, swiping = false;
 function openPlayer() {
   playerOpen = true;
   pl.hidden = false;
+  restart(pl, "stagger");
   renderPlayer(); onTime();
   requestAnimationFrame(() => requestAnimationFrame(() => pl.classList.add("open")));
 }
@@ -1359,11 +1403,20 @@ function bandsAt(sec) {
   return pulseAt(sec);
 }
 
+// Sizes are learnt from ResizeObserver, never measured inside the frame loop: reading layout right after
+// writing styles each frame forces the browser to redo layout 60 times a second, which is what made things stutter.
+const DPR = Math.min(devicePixelRatio || 1, 2);
+const box = new WeakMap();          // element -> { w, h } in CSS pixels
+const ro = new ResizeObserver(entries => {
+  for (const e of entries) {
+    const { width, height } = e.contentRect;
+    box.set(e.target, { w: width, h: height });
+    if (e.target instanceof HTMLCanvasElement) { e.target.width = Math.round(width * DPR); e.target.height = Math.round(height * DPR); }
+  }
+});
 function fitCanvas(c) {
-  const r = c.getBoundingClientRect(), d = Math.min(devicePixelRatio || 1, 2);
-  const w = Math.round(r.width * d), h = Math.round(r.height * d);
-  if (c.width !== w || c.height !== h) { c.width = w; c.height = h; }
-  return d;
+  if (!box.has(c)) { ro.observe(c); box.set(c, { w: 0, h: 0 }); }
+  return DPR;
 }
 
 function ring(x, cx, cy, r, t, k, amp) {
@@ -1398,8 +1451,9 @@ const dust = Array.from({ length: 70 }, () => ({ a: Math.random() * Math.PI * 2,
 
 function drawHero(t) {
   const c = $("#heroRings");
-  if (!c || !c.offsetParent) return;
+  if (!c) return;
   const d = fitCanvas(c), x = c.getContext("2d"), w = c.width, h = c.height, cx = w / 2, cy = h / 2;
+  if (!w || !h) return;
   x.clearRect(0, 0, w, h);
   const mine = isWave() && P.ctxSrc === S.source && cur();
   const lo = mine ? viz.low : 0, mi = mine ? viz.mid : 0;
@@ -1421,7 +1475,7 @@ function drawPlayer(t, dt) {
   if (style === "off") return;
   const [r, g, b] = (accentRgb() && S.look.accent !== "mono" ? accentRgb() : viz.color).map(Math.round);
   const lo = viz.low, mi = viz.mid, hi = viz.high, hit = viz.hit;
-  const cr = $("#plCover").offsetWidth / 2 * d * (1 + lo * 0.11 + hit * 0.06) * (S.look.cover === "square" ? 1.13 : 1);
+  const cr = (coverBox().w || 200) / 2 * d * (1 + lo * 0.11 + hit * 0.06) * (S.look.cover === "square" ? 1.13 : 1);
   const room = Math.min(w / 2, h / 2) - cr;
   if (style === "minimal") {
     x.strokeStyle = `rgba(${r},${g},${b},${(0.55 + hit * 0.4).toFixed(3)})`;
@@ -1482,10 +1536,20 @@ function drawPlayer(t, dt) {
   }
 }
 
-let lastFrame = 0, spin = 0;
+const coverEl = $("#plCover"), glow1El = $("#glow1"), glow2El = $("#glow2");
+ro.observe(coverEl);
+const coverBox = () => box.get(coverEl) || { w: 0, h: 0 };
+// write a style only when it really changes (every write invalidates styles)
+const put = (el, prop, v) => { if (el["_" + prop] !== v) { el["_" + prop] = v; el.style[prop] = v; } };
+
+let lastFrame = 0, spin = 0, odd = false;
 function frame(ms) {
   requestAnimationFrame(frame);
   if (document.hidden) return;
+  // nothing animated on screen: skip the frame entirely; idle home ring: 30 fps is plenty
+  if (!playerOpen && S.tab !== "wave") return;
+  odd = !odd;
+  if (!playerOpen && !playing() && viz.level < 0.02 && odd) return;
   const t = ms / 1000, dt = Math.min(0.05, (ms - lastFrame) / 1000 || 0.016);
   lastFrame = ms;
   viz.level += ((playing() ? 1 : 0) - viz.level) * 0.05;
@@ -1496,18 +1560,18 @@ function frame(ms) {
   viz.kick *= 0.92;
   if (playerOpen) {
     drawPlayer(t, dt);
-    const cv = $("#plCover");
+    const cv = coverEl;
     spin = S.look.spin && S.look.cover !== "square" ? (spin + dt * 9 * viz.level) % 360 : spin * 0.9;
-    cv.style.scale = (1 + viz.low * 0.11 + viz.hit * 0.06).toFixed(4);
-    cv.style.rotate = (spin + Math.sin(t * 1.7) * viz.mid * 2).toFixed(2) + "deg";
+    put(cv, "scale", (1 + viz.low * 0.11 + viz.hit * 0.06).toFixed(3));
+    put(cv, "rotate", (spin + Math.sin(t * 1.7) * viz.mid * 2).toFixed(1) + "deg");
     if (!swiping && S.look.motion !== "reduced") {
       const sh = viz.hit > 0.55 ? (viz.hit - 0.55) * 9 : 0;
-      cv.style.translate = sh ? `${((Math.random() - 0.5) * sh).toFixed(1)}px ${((Math.random() - 0.5) * sh).toFixed(1)}px` : "";
+      put(cv, "translate", sh ? `${((Math.random() - 0.5) * sh).toFixed(1)}px ${((Math.random() - 0.5) * sh).toFixed(1)}px` : "");
     }
     const gk = S.look.plbg === "vivid" ? 1.5 : 1;
-    $("#glow1").style.opacity = ((0.35 + viz.low * 0.4 + viz.hit * 0.15) * gk).toFixed(3);
-    $("#glow1").style.scale = (1 + viz.low * 0.08).toFixed(4);
-    $("#glow2").style.opacity = (0.25 + viz.high * 0.35).toFixed(3);
+    put(glow1El, "opacity", ((0.35 + viz.low * 0.4 + viz.hit * 0.15) * gk).toFixed(2));
+    put(glow1El, "scale", (1 + viz.low * 0.08).toFixed(3));
+    put(glow2El, "opacity", (0.25 + viz.high * 0.35).toFixed(2));
   } else if (S.tab === "wave") drawHero(t);
 }
 requestAnimationFrame(frame);
